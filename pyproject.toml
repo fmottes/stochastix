@@ -2,6 +2,14 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# Hatch build configuration
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "docs/**",
+  "example-notebooks/**",
+  "tmp/**",
+]
+
 [project]
 name = "stochastix"
 version = "0.1.0"
