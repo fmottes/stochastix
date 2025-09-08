@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Outer box -->
+  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+  <!-- Step function path -->
+  <path d="M6 18 H12 V6 H18" />
+</svg>

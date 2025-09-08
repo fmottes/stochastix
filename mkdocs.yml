@@ -1,0 +1,151 @@
+site_name: stochastix
+repo_url: https://github.com/fmottes/stochastix
+repo_name: fmottes/stochastix
+edit_uri: ""
+
+nav:
+  - Getting Started: 'index.md'
+  - Basic Usage: 'basic-usage.md'
+  
+  - User Guides:
+    - Key Concepts: 'user-guide/key-concepts.md'
+    - Defining models: 'user-guide/defining-models.md'
+    - Running simulations: 'user-guide/running-simulations.md'
+    - Sensitivities and optimization: 'user-guide/sensitivity-and-optimization.md'
+
+  - Example Notebooks:
+    - 'example-notebooks/README.md'
+
+    - Forward Simulations:
+      - Simulation Examples: 'example-notebooks/simulation-examples.ipynb'
+      - CME <> ODE <> SDE Conversion: 'example-notebooks/model-conversion.ipynb'
+
+    - Optimization:
+      - Simple Gene Expression Model: 'example-notebooks/simple-gene-expression.ipynb'
+      - Positive Self-Loop Gene Expression: 'example-notebooks/gene-positive-self-loop.ipynb'
+      - Simple Entropy Maximization: 'example-notebooks/MaxEnt-positive-self-loop.ipynb'
+
+
+  - API Reference:
+    - 'api/index.md'
+
+    - Models:
+      - Reaction: 'api/reaction.md'
+      - Kinetics: 'api/kinetics.md'
+      - ReactionNetwork: 'api/network.md'
+
+    - Simulation:
+      - stochsimsolve: 'api/stochsimsolve.md'
+      - Solvers: 'api/solvers.md'
+      - Controllers: 'api/controllers.md'
+      - SimulationResults: 'api/simulation-results.md'
+      - State Manipulation: 'api/state-utils.md'
+
+    - Systems: 'api/systems.md'
+    - Generators: 'api/generators.md'
+
+    - Utilities: 
+      - Optimization: 'api/utils/optimization.md'
+      - Visualization: 'api/utils/visualization.md'
+      - Analysis: 'api/utils/analysis.md'
+      - Basic Neural Networks: 'api/utils/neural-networks.md'
+      - Misc: 'api/utils/misc.md'
+
+
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  logo: _static/step-function-box.svg
+  favicon: _static/step-function-box.png
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    # - navigation.tabs
+    - navigation.top
+    - navigation.sections
+    # - navigation.path
+    - navigation.expand
+    - navigation.indexes
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+
+
+plugins:
+  # - hippogriffe:
+  #     show_bases: false
+  #     show_source_links: none
+  #     extra_public_objects:
+  #       - jax.numpy.ndarray
+  #       - jax.numpy.floating
+  #       - diffrax.ODETerm
+  #       - diffrax.MultiTerm
+  - offline
+  - search:
+      separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
+  - ipynb 
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            force_inspection: true
+            heading_level: 3
+            inherited_members: false
+            members_order: source
+            show_bases: false
+            show_if_no_docstring: true
+            show_root_heading: true
+            separate_signature: true
+            show_signature_annotations: true
+            show_source: false
+            filters: ["!^_"]
+            group_by_category: true
+            docstring_options:
+              ignore_init_summary: true
+            merge_init_into_class: true
+            docstring_section_style: list
+                
+
+markdown_extensions:
+  - pymdownx.arithmatex:  # Render LaTeX via MathJax
+      generic: true
+  - pymdownx.superfences  # Seems to enable syntax highlighting when used with the Material theme.
+  - pymdownx.details  # Allowing hidden expandable regions denoted by ???
+  - pymdownx.snippets:  # Include one Markdown file into another
+      base_path: docs
+  - pymdownx.highlight:
+      default_lang: python
+  - admonition
+  - toc:
+      permalink: "#"  # Adds a clickable permalink to each section heading
+      toc_depth: 3  # Prevents h4, h5 (i.e. methods) from showing up in the TOC.
+
+
+extra_javascript: 
+  # make MathJax work, see https://squidfunk.github.io/mkdocs-material/reference/mathjax/
+  - _static/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+extra_css:
+  - _static/custom_style.css
+
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/fmottes/stochastix
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/stochastix/
