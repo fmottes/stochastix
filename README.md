@@ -94,8 +94,5 @@ To dive deeper take a look at the [stochastix documentation](https://fmottes.git
 
 ## Citation
 
-Coming soon...
-
-```
-```
+See [`CITATION.cff`](CITATION.cff). For BibTeX format, click on the “Cite this repository” button in the top right corner of the repository page.
 
