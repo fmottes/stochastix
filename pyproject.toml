@@ -1,0 +1,96 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Hatch build configuration
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "docs/**",
+  "example-notebooks/**",
+  "tmp/**",
+]
+
+[project]
+name = "stochastix"
+version = "0.1.0"
+description = "Differentiable, hardware accelerated (stochastic) kinetic models in JAX."
+readme = "README.md"
+authors = [
+    { name = "Francesco Mottes", email = "fmottes@seas.harvard.edu" },
+]
+license = { file = "LICENSE" }
+requires-python = ">=3.10,<4.0"
+keywords = ["jax", "ssa", "gillespie", "stochastic", "simulation", "kinetic-models", "differentiable", "systems-biology"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+dependencies = [
+    "jax>=0.6.2 ",
+    "equinox>=0.12.2",
+    "diffrax>=0.7.0",
+    "matplotlib>=3.9.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/fmottes/stochastix"
+Repository = "https://github.com/fmottes/stochastix"
+Documentation = "https://fmottes.github.io/stochastix/"
+
+
+# Optional dependencies
+[project.optional-dependencies]
+notebooks = [
+    "ipykernel>=6.30.0",
+    "optax>=0.2.5",
+    "tqdm>=4.67.1",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.2.0",
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
+]
+docs = [
+    "hippogriffe>=0.2.2",
+    "mkdocs>=1.6.1",
+    "mkdocs-ipynb>=0.1.1",
+    "mkdocs-material>=9.6.14",
+    "mkdocstrings[python]>=0.29.1",
+    "pymdown-extensions>=10.16",
+    "ruff>=0.12.7",
+]
+
+
+### RUFF CONFIGS ###
+
+[tool.ruff]
+extend-include = ["*.ipynb"]
+
+[tool.ruff.lint]
+extend-select = [
+  "UP",  # pyupgrade
+  "D",   # pydocstyle
+]
+ignore = ["E501", "E731"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"] #unused-import
+"**/{tests,docs,tools}/*" = ["E402", "D"] #module-import-not-at-top-of-file, pydocstyle
+"*.ipynb" = ["D"] #pydocstyle
+
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "single"
