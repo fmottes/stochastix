@@ -398,13 +398,13 @@ def differentiable_state_histogram(
         min_max_vals: Tuple of (min_val, max_val) for bin range. If None, determined
             automatically from data (not JIT-able).
         density: Return normalized (True) or unnormalized probabilities (False).
-        t: The time point or time index at which to compute the histogram. If None, the final time point is used.
+        t: The time point (float) or time index (int) at which to compute the histogram. If None, the final time point is used.
 
     Returns:
         A tuple `(bins, probabilities)` where:
             - `bins`: The center of the histogram bins.
             - `probabilities`: A 2D array where `probabilities[:, i]` is the
-              probability mass of the i-th species at the final time point.
+              probability mass of the i-th species at the specified time point.
     """
     if isinstance(species, str):
         species = (species,)
