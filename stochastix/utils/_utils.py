@@ -27,9 +27,9 @@ def algebraic_sigmoid(x: jnp.ndarray):
 
 
 def entropy(p: jnp.ndarray, base: float = 2) -> jnp.ndarray:
-    """Calculate the entropy of a probability distribution.
+    """MLE estimator for the entropy of a probability distribution.
 
-    Default calculation is in bits.
+    Default calculation is in bits. No correction for finite sample size is applied.
 
     Args:
         p: The probability distribution.
