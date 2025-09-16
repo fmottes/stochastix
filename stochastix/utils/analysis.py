@@ -133,6 +133,7 @@ def differentiable_histogram(
     n_bins: int | None = None,
     min_max_vals: tuple[float, float] | None = None,
     density: bool = True,
+    weights: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Differentiable histogram with a triangular kernel.
 
@@ -156,6 +157,8 @@ def differentiable_histogram(
         min_max_vals: Tuple of (min_val, max_val) for bin range. If None, determined
             automatically from data.
         density: Whether to return the density or the counts.
+        weights: Optional nonnegative weights per sample (same length as `x`).
+            When provided, kernel contributions are multiplied by these weights.
 
     Returns:
         A tuple `(bins, probabilities)` where:
@@ -163,6 +166,9 @@ def differentiable_histogram(
             - `probabilities`: A 1D array of the probability mass of the data.
     """
     x = x.flatten()
+    w = None if weights is None else weights.flatten()
+    if w is not None and w.shape[0] != x.shape[0]:
+        raise ValueError('weights must have the same length as x')
 
     # Determine bin parameters
     if min_max_vals is None:
@@ -179,7 +185,7 @@ def differentiable_histogram(
     bins = jnp.linspace(min_val, max_val, n_bins)
 
     @eqx.filter_jit
-    def _probs(x, bins):
+    def _probs(x, bins, w):
         bin_width = jnp.where(bins.shape[0] > 1, bins[1] - bins[0], 1.0)
         bin_width = jnp.maximum(bin_width, 1e-6)
 
@@ -195,14 +201,19 @@ def differentiable_histogram(
         kernel_vals = jnp.maximum(0, 1 - dist)
 
         # Sum contributions for each bin and normalize
-        probability = jnp.sum(kernel_vals, axis=0)
+        if w is None:
+            probability = jnp.sum(kernel_vals, axis=0)
+        else:
+            probability = jnp.sum(kernel_vals * jnp.expand_dims(w, -1), axis=0)
 
         if density:
-            probability = probability / jnp.sum(probability)
+            denom = jnp.sum(probability)
+            denom = jnp.where(denom > 0, denom, 1.0)
+            probability = probability / denom
 
         return probability
 
-    probabilities = _probs(x, bins)
+    probabilities = _probs(x, bins, w)
 
     return bins, probabilities
 
@@ -435,6 +446,111 @@ def differentiable_state_histogram(
         n_bins = int(max_val - min_val) + 1 if max_val >= min_val else 1
 
     bins = jnp.linspace(min_val, max_val, n_bins)
+    return bins, probabilities
+
+
+def differentiable_dwell_histogram(
+    results: SimulationResults,
+    species: str | tuple[str, ...],
+    t_window: tuple[float, float] | None = None,
+    n_bins: int | None = None,
+    min_max_vals: tuple[float, float] | None = None,
+    density: bool = True,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Compute a differentiable histogram of dwell times over a time window.
+
+    This function computes how much time a species spends at different abundance
+    levels within a specified time window, using exact inter-jump durations from
+    ``results.t``. It aggregates across a batch of trajectories before computing
+    the histogram. Soft binning is performed with the same triangular kernel as
+    :func:`differentiable_histogram`, using time durations as weights.
+
+    Note: JIT-compatibility.
+        To make this function JIT-compatible, provide concrete values for
+        ``n_bins`` and ``min_max_vals``. If left as ``None``, bin parameters are
+        determined from the data (not JIT-able).
+
+    Args:
+        results: The ``SimulationResults`` from a ``stochsimsolve`` simulation.
+            Can be batched or unbatched. For batched inputs, dwell durations are
+            aggregated across the batch.
+        species: The species for which to compute the dwell-time histogram. Can
+            be a single species name or a tuple of names.
+        t_window: Optional ``(t_start, t_end)`` time window. If ``None``, uses
+            the full available interval of each trajectory.
+        n_bins: Number of bins to use. If ``None``, determined automatically from
+            the data range (not JIT-able).
+        min_max_vals: Tuple of ``(min_val, max_val)`` for bin range. If ``None``,
+            determined automatically from data (not JIT-able).
+        density: If ``True``, returns normalized dwell fractions that sum to 1
+            per species over bins. If ``False``, returns total dwell time per bin
+            (in time units), aggregated across the batch.
+
+    Returns:
+        A tuple ``(bins, probabilities)`` where:
+            - ``bins``: The center of the histogram bins, shape ``(n_bins,)``.
+            - ``probabilities``: A 2D array of shape ``(n_bins, n_species)``. If
+              ``density=True``, these are dwell-time fractions; otherwise, total
+              dwell times per bin.
+    """
+    if isinstance(species, str):
+        species = (species,)
+
+    species_indices = jnp.array([results.species.index(s) for s in species])
+
+    # Unify to (B, T, S) and (B, T)
+    x_full = pytree_to_state(results.x, results.species)
+    if x_full.ndim == 2:
+        x_full = x_full[None, ...]
+    t_full = results.t
+    if t_full.ndim == 1:
+        t_full = t_full[None, :]
+
+    # Intervals [t[i], t[i+1]) with constant state x[i]
+    t0 = t_full[:, :-1]
+    t1 = t_full[:, 1:]
+
+    if t_window is None:
+        overlap = jnp.clip(t1 - t0, min=0.0)
+    else:
+        t_start, t_end = t_window
+        start = jnp.maximum(t0, t_start)
+        end = jnp.minimum(t1, t_end)
+        overlap = jnp.clip(end - start, min=0.0)
+
+    # Values at the start of each interval for selected species
+    vals = x_full[:, :-1, :][:, :, species_indices]  # (B, M, S_sel)
+    weights = overlap  # (B, M)
+
+    # Determine bin parameters shared across species
+    if min_max_vals is None:
+        min_val = jnp.floor(jnp.min(vals))
+        max_val = jnp.ceil(jnp.max(vals))
+    else:
+        min_val, max_val = min_max_vals
+
+    if n_bins is None:
+        n_bins = int(max_val - min_val) + 1 if max_val >= min_val else 1
+
+    bins = jnp.linspace(min_val, max_val, n_bins)
+
+    # Flatten across batch and intervals
+    vals_flat = vals.reshape(-1, vals.shape[-1])  # (B*M, S_sel)
+    w_flat = weights.reshape(-1)  # (B*M,)
+
+    def _hist_for_species(column: jnp.ndarray) -> jnp.ndarray:
+        # Use weights as interval durations. Provide shared bin params.
+        return differentiable_histogram(
+            column,
+            n_bins=n_bins,
+            min_max_vals=(min_val, max_val),
+            density=density,
+            weights=w_flat,
+        )[1]
+
+    # Vectorize over species dimension
+    probabilities = jax.vmap(_hist_for_species, in_axes=1, out_axes=1)(vals_flat)
+
     return bins, probabilities
 
 
