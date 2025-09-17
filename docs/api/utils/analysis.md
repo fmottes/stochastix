@@ -10,6 +10,9 @@
 ::: stochastix.utils.analysis.differentiable_histogram
 
 ---
+::: stochastix.utils.analysis.differentiable_dwell_histogram
+
+---
 ::: stochastix.utils.analysis.differentiable_histogram2d
 
 ---
