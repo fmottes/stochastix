@@ -226,6 +226,7 @@ def differentiable_histogram2d(
     min_max_vals1: tuple[float, float] | None = None,
     min_max_vals2: tuple[float, float] | None = None,
     density: bool = True,
+    weights: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Differentiable 2D histogram with a triangular kernel.
 
@@ -243,14 +244,16 @@ def differentiable_histogram2d(
     Args:
         x1: 1D array of the first input data. If not 1D, will be flattened.
         x2: 1D array of the second input data. If not 1D, will be flattened.
-            Must have the same length as x1.
-        n_bins1: Number of bins for the first dimension. If None, determined automatically.
-        n_bins2: Number of bins for the second dimension. If None, determined automatically.
+            Must have the same length as ``x1``.
+        n_bins1: Number of bins for the first dimension. If ``None``, determined automatically.
+        n_bins2: Number of bins for the second dimension. If ``None``, determined automatically.
         min_max_vals1: Tuple of (min, max) for the first dimension's bin range.
-            If None, determined automatically.
+            If ``None``, determined automatically.
         min_max_vals2: Tuple of (min, max) for the second dimension's bin range.
-            If None, determined automatically.
+            If ``None``, determined automatically.
         density: Whether to return the density or the counts.
+        weights: Optional nonnegative weights per sample (same length as ``x1`` and ``x2``).
+            When provided, kernel contributions are multiplied by these weights.
 
     Returns:
         A tuple `(bins1, bins2, probabilities)` where:
@@ -263,6 +266,10 @@ def differentiable_histogram2d(
 
     if x1.shape[0] != x2.shape[0]:
         raise ValueError('x1 and x2 must have the same length.')
+
+    w = None if weights is None else weights.flatten()
+    if w is not None and w.shape[0] != x1.shape[0]:
+        raise ValueError('weights must have the same length as x1 and x2.')
 
     # Determine bin parameters
     if min_max_vals1 is None:
@@ -284,7 +291,7 @@ def differentiable_histogram2d(
     bins2 = jnp.linspace(min_val2, max_val2, n_bins2)
 
     @eqx.filter_jit
-    def _probs(x1, x2, bins1, bins2):
+    def _probs(x1, x2, bins1, bins2, w):
         # Calculate 1D kernel values for each dimension
         bin_width1 = jnp.where(bins1.shape[0] > 1, bins1[1] - bins1[0], 1.0)
         bin_width1 = jnp.maximum(bin_width1, 1e-6)
@@ -307,15 +314,20 @@ def differentiable_histogram2d(
         # Product gives contribution of each point to each 2D bin
         joint_kernel = kernel_vals1_b * kernel_vals2_b  # (n_points, n_bins1, n_bins2)
 
-        # Sum over all points
-        probability = jnp.sum(joint_kernel, axis=0)
+        # Sum over all points (weighted if provided)
+        if w is None:
+            probability = jnp.sum(joint_kernel, axis=0)
+        else:
+            probability = jnp.sum(joint_kernel * jnp.expand_dims(w, (1, 2)), axis=0)
 
         if density:
-            probability = probability / jnp.sum(probability)
+            denom = jnp.sum(probability)
+            denom = jnp.where(denom > 0, denom, 1.0)
+            probability = probability / denom
 
         return probability
 
-    probabilities = _probs(x1, x2, bins1, bins2)
+    probabilities = _probs(x1, x2, bins1, bins2, w)
 
     return bins1, bins2, probabilities
 
