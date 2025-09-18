@@ -506,9 +506,9 @@ def test_mlp_ode_rate_fn():
     propensity = kinetics.propensity_fn(x, reactants=None, volume=volume)
     assert np.isclose(propensity, 10.0)
 
-    # ode_rate = propensity / volume
+    # ode_rate now matches molecules/time convention
     ode_rate = kinetics.ode_rate_fn(x, reactants=None, volume=volume)
-    assert np.isclose(ode_rate, 5.0)
+    assert np.isclose(ode_rate, 10.0)
 
     # Test with a single batch dimension
     x_single_batch = jnp.ones((5, 2))

@@ -337,7 +337,7 @@ class HillAA(AbstractKinetics):
 
         The rate is calculated based on the concentrations of the activators and
         the specified logic ('and'/'or') and binding mode (competitive/independent).
-        The result is returned in units of concentration/time.
+        The result is returned in units of molecules/time.
 
         Args:
             x: The current state vector (species counts).
@@ -346,7 +346,7 @@ class HillAA(AbstractKinetics):
             volume: The system volume.
 
         Returns:
-            The deterministic rate in concentration per unit time.
+            The deterministic rate in molecules per unit time.
         """
         return self.propensity_fn(x, reactants, t, volume)
 
@@ -547,7 +547,7 @@ class HillRR(AbstractKinetics):
 
         The rate is calculated based on the concentrations of the repressors and
         the specified logic ('and'/'or') and binding mode (competitive/independent).
-        The result is returned in units of concentration/time.
+        The result is returned in units of molecules/time.
 
         Args:
             x: The current state vector (species counts).
@@ -556,7 +556,7 @@ class HillRR(AbstractKinetics):
             volume: The system volume.
 
         Returns:
-            The deterministic rate in concentration per unit time.
+            The deterministic rate in molecules per unit time.
         """
         return self.propensity_fn(x, reactants, t, volume)
 
@@ -752,7 +752,7 @@ class HillAR(AbstractKinetics):
 
         The rate is calculated based on the concentrations of the regulators and
         the specified logic ('and'/'or') and binding mode (competitive/independent).
-        The result is returned in units of concentration/time.
+        The result is returned in units of molecules/time.
 
         Args:
             x: The current state vector (species counts).
@@ -761,6 +761,6 @@ class HillAR(AbstractKinetics):
             volume: The system volume.
 
         Returns:
-            The deterministic rate in concentration per unit time.
+            The deterministic rate in molecules per unit time.
         """
         return self.propensity_fn(x, reactants, t, volume)

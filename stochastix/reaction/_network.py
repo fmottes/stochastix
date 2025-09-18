@@ -249,7 +249,7 @@ class ReactionNetwork(eqx.Module):
             args: Additional arguments (not used).
 
         Returns:
-            The time derivative of the state, `dx/dt`, in concentration/time.
+            The time derivative of the state, `dx/dt`, in molecules/time (counts/time).
         """
         reactant_matrix = jnp.asarray(self.reactant_matrix)
         stoichiometry_matrix = jnp.asarray(self.stoichiometry_matrix)

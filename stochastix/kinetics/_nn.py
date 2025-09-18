@@ -187,7 +187,7 @@ class MLP(AbstractKinetics):
     ):
         """Calculates the ODE rate using the MLP.
 
-        The MLP computes a rate in concentration/time, which is then divided by
+        The MLP computes a rate in concentration/time, which is then multiplied by
         the volume to obtain the final rate in molecules/time.
 
         Args:
@@ -199,4 +199,4 @@ class MLP(AbstractKinetics):
         Returns:
             The deterministic rate in molecules per unit time.
         """
-        return self.propensity_fn(x, reactants, t, volume) / volume
+        return self.propensity_fn(x, reactants, t, volume)
