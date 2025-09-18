@@ -15,7 +15,7 @@ def entr_safe(p):
         -p * log2(p) if p > 0, 0 otherwise.
     """
     tiny = jnp.finfo(p.dtype).tiny
-    p_clip = jnp.clip(p, a_min=tiny, a_max=1.0)
+    p_clip = jnp.clip(p, min=tiny, max=1.0)
 
     return -p * jnp.log2(p_clip)
 
@@ -55,3 +55,70 @@ def entropy(p: jnp.ndarray, base: float = 2) -> jnp.ndarray:
     # entr calculates -plogp
     h = jnp.sum(entr_safe(p))
     return h / jnp.log2(base)
+
+
+def rate_constant_conc_to_count(
+    rate_constant: jnp.ndarray | float,
+    reaction_order: float | int | jnp.floating | jnp.integer,
+    volume: float | jnp.floating,
+    use_molar_units: bool = True,
+    avogadro_number: float | jnp.floating | None = None,
+    return_log: bool = False,
+) -> jnp.ndarray:
+    """Convert a concentration-based rate constant to a count-based constant.
+
+    This converts the macroscopic (deterministic ODE) rate constant ``k`` to the
+    mesoscopic (stochastic) propensity constant ``c`` used with molecule counts.
+
+    General relation for an m-th order reaction:
+      c = k * (V)^(1 - m)                [number-density units]
+      c = k * (N_A * V)^(1 - m)          [molar units]
+
+    Computation is performed in log10 space for numerical stability and interpretability.
+
+    Args:
+        rate_constant: Macroscopic rate constant ``k`` (in concentration units).
+        reaction_order: Total order ``m`` of the reaction (sum of reactant stoichiometries). May be non-integer for effective kinetics.
+        volume: System volume. Liters if ``use_molar_units`` is True.
+        use_molar_units: Whether ``k`` is in molar units (e.g., M^(1-m)/s).
+        avogadro_number: Optional Avogadro's number override. Defaults to 6.02214076e23.
+        return_log: If True, return log10(c) instead of c.
+
+    Returns:
+        The propensity constant ``c`` (or its log10 if ``return_log`` is True).
+    """
+    k = jnp.asarray(rate_constant)
+    vol = jnp.asarray(volume)
+
+    if jnp.any(vol <= 0):
+        raise ValueError(
+            'volume must be positive to compute a logarithm-based conversion.'
+        )
+    if reaction_order is None:
+        raise ValueError('reaction_order must be provided.')
+
+    m = jnp.asarray(reaction_order)
+    one_minus_m = 1 - m
+
+    # log10(k)
+    tiny = (
+        jnp.finfo(k.dtype).tiny
+        if k.dtype.kind in ('f',)
+        else jnp.finfo(jnp.float32).tiny
+    )
+    log10_k = jnp.log10(jnp.clip(k, min=tiny, max=jnp.inf))
+
+    # log10 of scaling base
+    if use_molar_units:
+        NA = 6.02214076e23 if avogadro_number is None else avogadro_number
+        log10_base = jnp.log10(vol) + jnp.log10(jnp.asarray(NA))
+    else:
+        log10_base = jnp.log10(vol)
+
+    log10_c = log10_k + one_minus_m * log10_base
+
+    if return_log:
+        return jnp.where(k <= 0, -jnp.inf, log10_c)
+
+    c = jnp.power(10.0, log10_c)
+    return jnp.where(k <= 0, 0.0, c)
