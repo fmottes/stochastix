@@ -3,7 +3,21 @@
 from __future__ import annotations
 
 import jax.numpy as jnp
-from jax.scipy.special import entr
+
+
+def entr_safe(p):
+    """Like jax.scipy.special.entr, but with zero handling.
+
+    Args:
+        p: The probability distribution.
+
+    Returns:
+        -p * log2(p) if p > 0, 0 otherwise.
+    """
+    tiny = jnp.finfo(p.dtype).tiny
+    p_clip = jnp.clip(p, a_min=tiny, a_max=1.0)
+
+    return -p * jnp.log2(p_clip)
 
 
 def algebraic_sigmoid(x: jnp.ndarray):
@@ -33,11 +47,11 @@ def entropy(p: jnp.ndarray, base: float = 2) -> jnp.ndarray:
 
     Args:
         p: The probability distribution.
-        base: The base of the logarithm. Default is 2.
+        base: The base of the logarithm. Default is 2 (bits).
 
     Returns:
         The entropy of the probability distribution.
     """
     # entr calculates -plogp
-    h = jnp.sum(entr(p))
-    return h / jnp.log(base)
+    h = jnp.sum(entr_safe(p))
+    return h / jnp.log2(base)
