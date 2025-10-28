@@ -12,6 +12,7 @@ from .analysis import (
     differentiable_histogram,
     differentiable_histogram2d,
     differentiable_state_histogram,
+    differentiable_state_mi,
     mutual_information,
 )
 
@@ -26,6 +27,7 @@ __all__ = [
     'differentiable_histogram2d',
     'differentiable_state_histogram',
     'mutual_information',
+    'differentiable_state_mi',
     'algebraic_sigmoid',
     'entropy',
     'rate_constant_conc_to_count',
