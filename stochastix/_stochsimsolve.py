@@ -83,15 +83,11 @@ def stochsimsolve(
             network, t, x, a, solver_state, key_solver = args
             dt = jnp.array(0.0)
             a_stop = jnp.zeros_like(a)
-            if solver.is_exact_solver:
-                r = jnp.array(-1).astype(jnp.result_type(int))
-            else:
-                r = -jnp.ones_like(a)
 
             step_result = SimulationStep(
                 x_new=x,
                 dt=dt,
-                reaction_idx=r,
+                reaction_idx=reaction_null,
                 propensities=a_stop,
             )
 
@@ -104,6 +100,12 @@ def stochsimsolve(
         # compute propensities
         a = solver.propensities(network, x, t)
         a0 = jnp.sum(a)
+
+        # Define reaction_null matching solver type and shapes
+        if solver.is_exact_solver:
+            reaction_null = jnp.array(-1).astype(jnp.result_type(int))
+        else:
+            reaction_null = jnp.zeros_like(a)
 
         do_step = jnp.logical_and(t < T, a0 > 0)
 
@@ -119,11 +121,25 @@ def stochsimsolve(
                 t, step_result, controller_state, key_controller
             )
 
-        new_t = t + step_result.dt
-        new_x = step_result.x_new
+        new_t_candidate = t + step_result.dt
+
+        # Reject state update if event would exceed time T
+        # Can be confusing when calculating final state statistics
+        would_exceed_T = new_t_candidate > T
+        new_t = jnp.where(would_exceed_T, T, new_t_candidate)
+        new_x = jnp.where(would_exceed_T, x, step_result.x_new)
+        new_r = jnp.where(would_exceed_T, reaction_null, step_result.reaction_idx)
+        new_a = jnp.where(would_exceed_T, jnp.zeros_like(a), step_result.propensities)
+
+        new_step_result = SimulationStep(
+            x_new=new_x,
+            dt=new_t - t,
+            reaction_idx=new_r,
+            propensities=new_a,
+        )
 
         new_carry = (new_t, new_x, controller_state, solver_state_new)
-        return new_carry, step_result
+        return new_carry, new_step_result
 
     #########################################################
     # Solver and Controller Initialization
