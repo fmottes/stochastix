@@ -7,7 +7,6 @@ import typing
 import jax.numpy as jnp
 
 from .._state_utils import pytree_to_state
-from ..utils._utils import entropy
 from .kde_1d import kde_exponential, kde_gaussian, kde_triangular
 from .kde_2d import kde_exponential_2d, kde_gaussian_2d, kde_triangular_2d
 
@@ -121,16 +120,36 @@ def mutual_information(
         dirichlet_kappa=dirichlet_kappa,
     )
 
-    # H(X) = - sum(p(x) * log(p(x)))
-    h_x1 = entropy(p_x1, base=base)
-    # H(Y) = - sum(p(y) * log(p(y)))
-    h_x2 = entropy(p_x2, base=base)
-    # H(X, Y) = - sum(p(x, y) * log(p(x, y)))
-    h_x1_x2 = entropy(p_x1_x2.flatten(), base=base)
+    # More numerically stable computation using direct log-ratio formula:
+    # I(X;Y) = sum_{x,y} p(x,y) * log(p(x,y) / (p(x) * p(y)))
+    # Computed in log-space to avoid underflow and cancellation errors
 
-    # I(X;Y) = H(X) + H(Y) - H(X,Y)
-    mi = h_x1 + h_x2 - h_x1_x2
-    return mi
+    tiny = jnp.finfo(p_x1_x2.dtype).tiny
+
+    # Compute log probabilities in log-space
+    log_p_x1_x2 = jnp.log2(jnp.maximum(p_x1_x2, tiny))
+    log_p_x1 = jnp.log2(jnp.maximum(p_x1, tiny))
+    log_p_x2 = jnp.log2(jnp.maximum(p_x2, tiny))
+
+    # Create outer product for log(p(x) * p(y)) = log p(x) + log p(y)
+    log_p_x1_2d = log_p_x1[:, None]  # shape: (n_grid_points1, 1)
+    log_p_x2_2d = log_p_x2[None, :]  # shape: (1, n_grid_points2)
+    log_p_x1_x2_indep = (
+        log_p_x1_2d + log_p_x2_2d
+    )  # shape: (n_grid_points1, n_grid_points2)
+
+    # I(X;Y) = sum p(x,y) * (log p(x,y) - log(p(x) * p(y)))
+    log_ratio = log_p_x1_x2 - log_p_x1_x2_indep
+
+    # Sum over all (x,y) pairs. Terms where p(x,y) = 0 contribute 0, so safe to sum all
+    mi = jnp.sum(p_x1_x2 * log_ratio)
+
+    # Convert to desired base if needed
+    if base != 2.0:
+        mi = mi / jnp.log2(base)
+
+    # Ensure non-negativity (should be naturally non-negative, but clamp for numerical safety)
+    return mi  # jnp.maximum(mi, 0.0)
 
 
 def state_mutual_info(
