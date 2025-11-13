@@ -1,8 +1,14 @@
-"""Data analysis functions for simulation results."""
+"""Data analysis functions for simulation results.
+
+.. deprecated::
+    This module is deprecated and will be removed in a future version.
+    Please use alternative implementations as they become available.
+"""
 
 from __future__ import annotations
 
 import typing
+import warnings
 
 import equinox as eqx
 import jax
@@ -23,6 +29,10 @@ def differentiable_histogram(
     weights: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Differentiable histogram with a triangular kernel.
+
+    .. deprecated::
+        This function is deprecated and will be removed in a future version.
+        Please use alternative implementations as they become available.
 
     This function uses a soft-binning approach with a triangular kernel to
     create a differentiable histogram. This is particularly useful for
@@ -53,6 +63,12 @@ def differentiable_histogram(
             - `bins`: The center of the histogram bins.
             - `probabilities`: A 1D array of the probability mass of the data.
     """
+    warnings.warn(
+        'differentiable_histogram is deprecated and will be removed in a future version. '
+        'Please use alternative implementations as they become available.',
+        DeprecationWarning,
+        stacklevel=2,
+    )
     x = x.flatten()
     w = None if weights is None else weights.flatten()
     if w is not None and w.shape[0] != x.shape[0]:
@@ -118,6 +134,10 @@ def differentiable_histogram2d(
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Differentiable 2D histogram with a triangular kernel.
 
+    .. deprecated::
+        This function is deprecated and will be removed in a future version.
+        Please use alternative implementations as they become available.
+
     This function uses a soft-binning approach with a product of two 1D
     triangular kernels to create a differentiable 2D histogram. This is useful
     for gradient-based optimization of parameters that affect the joint
@@ -150,6 +170,12 @@ def differentiable_histogram2d(
             - `bins2`: The center of the histogram bins for the second dimension.
             - `probabilities`: A 2D array of the probability mass of the data.
     """
+    warnings.warn(
+        'differentiable_histogram2d is deprecated and will be removed in a future version. '
+        'Please use alternative implementations as they become available.',
+        DeprecationWarning,
+        stacklevel=2,
+    )
     x1 = x1.flatten()
     x2 = x2.flatten()
 
@@ -232,6 +258,10 @@ def mutual_information(
 ) -> jnp.ndarray:
     """Compute the mutual information between two arrays.
 
+    .. deprecated::
+        This function is deprecated and will be removed in a future version.
+        Please use alternative implementations as they become available.
+
     This function uses the differentiable histogram functions to compute the
     mutual information between two arrays `x1` and `x2`. The mutual
     information is a measure of the mutual dependence between the two variables.
@@ -256,6 +286,12 @@ def mutual_information(
     Returns:
         The mutual information between `x1` and `x2`.
     """
+    warnings.warn(
+        'mutual_information is deprecated and will be removed in a future version. '
+        'Please use alternative implementations as they become available.',
+        DeprecationWarning,
+        stacklevel=2,
+    )
     # p(x1)
     _, p_x1 = differentiable_histogram(
         x1, n_bins=n_bins1, min_max_vals=min_max_vals1, density=True
@@ -297,6 +333,10 @@ def differentiable_state_histogram(
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Compute a differentiable histogram of the final state distribution.
 
+    .. deprecated::
+        This function is deprecated and will be removed in a future version.
+        Please use alternative implementations as they become available.
+
     This function is a convenience wrapper around `differentiable_histogram`
     that specifically operates on the final state of batched `SimulationResults`.
 
@@ -319,6 +359,12 @@ def differentiable_state_histogram(
             - `probabilities`: A 2D array where `probabilities[:, i]` is the
               probability mass of the i-th species at the specified time point.
     """
+    warnings.warn(
+        'differentiable_state_histogram is deprecated and will be removed in a future version. '
+        'Please use alternative implementations as they become available.',
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if isinstance(species, str):
         species = (species,)
 
@@ -361,6 +407,10 @@ def differentiable_dwell_histogram(
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Compute a differentiable histogram of dwell times over a time window.
 
+    .. deprecated::
+        This function is deprecated and will be removed in a future version.
+        Please use alternative implementations as they become available.
+
     This function computes how much time a species spends at different abundance
     levels within a specified time window, using exact inter-jump durations from
     ``results.t``. It aggregates across a batch of trajectories before computing
@@ -396,6 +446,12 @@ def differentiable_dwell_histogram(
               ``density=True``, these are dwell-time fractions; otherwise, total
               dwell times per bin.
     """
+    warnings.warn(
+        'differentiable_dwell_histogram is deprecated and will be removed in a future version. '
+        'Please use alternative implementations as they become available.',
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if isinstance(species, str):
         species = (species,)
 
@@ -468,6 +524,10 @@ def differentiable_state_mi(
 ) -> jnp.ndarray:
     """Compute the mutual information between two species at specific time points.
 
+    .. deprecated::
+        This function is deprecated and will be removed in a future version.
+        Please use alternative implementations as they become available.
+
     This function calculates the mutual information between the distributions of
     two species at two potentially different time points, `t1` and `t2`, from
     batched simulation results. It leverages differentiable histograms to ensure
@@ -501,6 +561,12 @@ def differentiable_state_mi(
         The mutual information between the distributions of the two specified
         species at their respective time points.
     """
+    warnings.warn(
+        'differentiable_state_mi is deprecated and will be removed in a future version. '
+        'Please use alternative implementations as they become available.',
+        DeprecationWarning,
+        stacklevel=2,
+    )
     species_at_t_list = list(species_at_t)
     if len(species_at_t_list) != 2:
         raise ValueError(
