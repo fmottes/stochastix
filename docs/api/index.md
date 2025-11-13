@@ -29,11 +29,14 @@ This is the API reference for `stochastix`. For usage examples and guides see [H
 *   [`stochastix.System`][systems] : Convenience wrappers. Bundle a ReactionNetwork with a forward solver.
 
 
+**Analysis**
+
+*   [`stochastix.analysis`][analysis] : Analysis utilities (e.g. correlation functions, KDE, and mutual information).
+
 ## Utilities
 
 *   [`stochastix.utils.optimization`][optimization] : Optimization utilities.
 *   [`stochastix.utils.visualization`][visualization] : Visualization utilities.
-*   [`stochastix.utils.analysis`][analysis] : Analysis utilities (e.g. correlation functions and histograms).
 *   [`stochastix.utils.nn`][neural-networks] : Neural network utilities for [neural kinetics](kinetics.md#neural-kinetic-laws).
 *   [`stochastix.utils.misc`][misc] : Miscellaneous utilities.
 
@@ -48,7 +51,7 @@ This is the API reference for `stochastix`. For usage examples and guides see [H
 [generators]: generators.md
 [solvers]: solvers.md
 [controllers]: controllers.md
-[analysis]: utils/analysis.md
+[analysis]: analysis.md
 [visualization]: utils/visualization.md
 [neural-networks]: utils/neural-networks.md
 [optimization]: utils/optimization.md
