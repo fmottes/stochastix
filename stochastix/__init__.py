@@ -6,6 +6,7 @@ __version__ = importlib.metadata.version('stochastix')
 
 from . import _systems as systems
 from . import (
+    analysis,
     controllers,
     generators,
     kinetics,
@@ -29,6 +30,7 @@ from .solvers import (
 from .utils.visualization import plot_abundance_dynamic
 
 __all__ = [
+    'analysis',
     'kinetics',
     'generators',
     'controllers',
