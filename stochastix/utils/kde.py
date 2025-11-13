@@ -18,6 +18,9 @@ def kde_triangular(
     density: bool = True,
     weights: jnp.ndarray | None = None,
     bw_multiplier: float = 1.0,
+    *,
+    dirichlet_alpha: float | None = 0.1,
+    dirichlet_kappa: float | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Kernel density estimation with a triangular kernel.
 
@@ -26,7 +29,13 @@ def kde_triangular(
     sample's kernel is renormalized over the evaluation grid to avoid boundary mass
     loss on finite support.
 
-    Note:
+    Note: Dirichlet smoothing
+        When ``density=True``, applies add-α smoothing to the multinomial pmf
+        implied by the soft counts before converting to a pdf:
+        ``p_hat = (counts + α) / (N + α*K)``.
+        When ``density=False``, returns raw soft counts (no smoothing).
+
+    Note: JIT-compatibility
         For JIT-compatibility, provide concrete binning parameters. If
         `n_grid_points` or `min_max_vals` are ``None``, bin parameters are derived
         from data outside of JIT.
@@ -44,6 +53,13 @@ def kde_triangular(
         weights: Optional nonnegative weights per sample (same length as `x`).
             When provided, kernel contributions are multiplied by these weights.
         bw_multiplier: Kernel half-width as a multiple of the bin width.
+        dirichlet_alpha: Per-bin pseudo-count for Dirichlet smoothing. Default is
+            ``0.1``. Note: ``dirichlet_kappa`` takes priority over this parameter if
+            provided.
+        dirichlet_kappa: Total pseudo-count for Dirichlet smoothing. If provided,
+            takes priority over ``dirichlet_alpha`` and ``alpha = kappa / K`` where K
+            is the number of grid points. If ``None``, uses ``dirichlet_alpha``
+            instead.
 
     Returns:
         A tuple ``(grid, values)`` where:
@@ -80,8 +96,19 @@ def kde_triangular(
         jnp.asarray(1e-6, dtype=grid.dtype),
     )
 
+    # Resolve effective Dirichlet alpha (per bin)
+    # If kappa is provided, alpha = kappa / K; else use dirichlet_alpha or 0
+    K = int(n_grid_points)
+    if dirichlet_kappa is not None:
+        alpha_eff = float(dirichlet_kappa) / float(K)
+    elif dirichlet_alpha is not None:
+        alpha_eff = float(dirichlet_alpha)
+    else:
+        alpha_eff = 0.0
+    alpha_eff = max(alpha_eff, 0.0)  # guard
+
     @eqx.filter_jit
-    def _probs(x, grid, w, grid_step, bw):
+    def _probs(x, grid, w, grid_step, bw, alpha_eff):
         x_b = x[:, None]  # (N, 1)
         grid_b = grid[None, :]  # (1, G)
 
@@ -100,20 +127,34 @@ def kde_triangular(
         )
         kernel_vals = kernel_vals / row_sum
 
+        # Soft counts (weighted if provided)
         if w is None:
-            counts = jnp.sum(kernel_vals, axis=0)
+            counts = jnp.sum(kernel_vals, axis=0)  # shape (G,)
         else:
             counts = jnp.sum(kernel_vals * w[:, None], axis=0)
 
-        if density:
-            denom = jnp.sum(counts)
-            denom = jnp.where(denom > 0, denom, jnp.asarray(1.0, dtype=counts.dtype))
-            counts = counts / (denom * grid_step)
+        if not density:
+            # Return raw soft counts; no Dirichlet smoothing here by design.
+            return counts
 
-        return counts
+        # Convert to a *pmf* with optional Dirichlet smoothing:
+        # p_hat = (counts + alpha) / (N + alpha*K)
+        N = jnp.sum(counts)
+        # Avoid 0/0 when N=0 and alpha=0: fall back to uniform
+        alpha = jnp.asarray(alpha_eff, dtype=counts.dtype)
+        Kf = jnp.asarray(counts.shape[-1], dtype=counts.dtype)
 
-    probabilities = _probs(x, grid, w, grid_step, bw)
-    return grid, probabilities
+        denom = N + alpha * Kf
+        denom = jnp.where(denom > 0, denom, jnp.asarray(1.0, dtype=counts.dtype))
+
+        pmf_smoothed = (counts + alpha) / denom
+
+        # Convert pmf to pdf on the grid
+        pdf = pmf_smoothed / grid_step
+        return pdf
+
+    values = _probs(x, grid, w, grid_step, bw, jnp.asarray(alpha_eff, dtype=grid.dtype))
+    return grid, values
 
 
 def kde_exponential(
@@ -123,6 +164,9 @@ def kde_exponential(
     density: bool = True,
     weights: jnp.ndarray | None = None,
     bw_multiplier: float = 1.0,
+    *,
+    dirichlet_alpha: float | None = 0.1,
+    dirichlet_kappa: float | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Kernel density estimation with an exponential (Laplace) kernel.
 
@@ -131,7 +175,13 @@ def kde_exponential(
     ``scale = bw_multiplier * grid_step``. Each sample's kernel is renormalized
     over the evaluation grid to avoid boundary mass loss on finite support.
 
-    Note:
+    Note: Dirichlet smoothing
+        When ``density=True``, applies add-α smoothing to the multinomial pmf
+        implied by the soft counts before converting to a pdf:
+        ``p_hat = (counts + α) / (N + α*K)``.
+        When ``density=False``, returns raw soft counts (no smoothing).
+
+    Note: JIT-compatibility
         For JIT-compatibility, provide concrete binning parameters. If
         `n_grid_points` or `min_max_vals` are ``None``, bin parameters are derived
         from data outside of JIT.
@@ -149,6 +199,13 @@ def kde_exponential(
         weights: Optional nonnegative weights per sample (same length as `x`).
             When provided, kernel contributions are multiplied by these weights.
         bw_multiplier: Positive decay scale as a multiple of the bin width.
+        dirichlet_alpha: Per-bin pseudo-count for Dirichlet smoothing. Default is
+            ``0.1``. Note: ``dirichlet_kappa`` takes priority over this parameter if
+            provided.
+        dirichlet_kappa: Total pseudo-count for Dirichlet smoothing. If provided,
+            takes priority over ``dirichlet_alpha`` and ``alpha = kappa / K`` where K
+            is the number of grid points. If ``None``, uses ``dirichlet_alpha``
+            instead.
 
     Returns:
         A tuple ``(grid, values)`` where:
@@ -185,8 +242,19 @@ def kde_exponential(
         jnp.asarray(1e-6, dtype=grid.dtype),
     )
 
+    # Resolve effective Dirichlet alpha (per bin)
+    # If kappa is provided, alpha = kappa / K; else use dirichlet_alpha or 0
+    K = int(n_grid_points)
+    if dirichlet_kappa is not None:
+        alpha_eff = float(dirichlet_kappa) / float(K)
+    elif dirichlet_alpha is not None:
+        alpha_eff = float(dirichlet_alpha)
+    else:
+        alpha_eff = 0.0
+    alpha_eff = max(alpha_eff, 0.0)  # guard
+
     @eqx.filter_jit
-    def _probs(x, grid, w, grid_step, bw):
+    def _probs(x, grid, w, grid_step, bw, alpha_eff):
         x_b = x[:, None]  # (N, 1)
         grid_b = grid[None, :]  # (1, G)
 
@@ -203,20 +271,34 @@ def kde_exponential(
         )
         kernel_vals = kernel_vals / row_sum
 
+        # Soft counts (weighted if provided)
         if w is None:
-            counts = jnp.sum(kernel_vals, axis=0)
+            counts = jnp.sum(kernel_vals, axis=0)  # shape (G,)
         else:
             counts = jnp.sum(kernel_vals * w[:, None], axis=0)
 
-        if density:
-            denom = jnp.sum(counts)
-            denom = jnp.where(denom > 0, denom, jnp.asarray(1.0, dtype=counts.dtype))
-            counts = counts / (denom * grid_step)
+        if not density:
+            # Return raw soft counts; no Dirichlet smoothing here by design.
+            return counts
 
-        return counts
+        # Convert to a *pmf* with optional Dirichlet smoothing:
+        # p_hat = (counts + alpha) / (N + alpha*K)
+        N = jnp.sum(counts)
+        # Avoid 0/0 when N=0 and alpha=0: fall back to uniform
+        alpha = jnp.asarray(alpha_eff, dtype=counts.dtype)
+        Kf = jnp.asarray(counts.shape[-1], dtype=counts.dtype)
 
-    probabilities = _probs(x, grid, w, grid_step, bw)
-    return grid, probabilities
+        denom = N + alpha * Kf
+        denom = jnp.where(denom > 0, denom, jnp.asarray(1.0, dtype=counts.dtype))
+
+        pmf_smoothed = (counts + alpha) / denom
+
+        # Convert pmf to pdf on the grid
+        pdf = pmf_smoothed / grid_step
+        return pdf
+
+    values = _probs(x, grid, w, grid_step, bw, jnp.asarray(alpha_eff, dtype=grid.dtype))
+    return grid, values
 
 
 def kde_gaussian(
@@ -226,6 +308,9 @@ def kde_gaussian(
     density: bool = True,
     weights: jnp.ndarray | None = None,
     bw_multiplier: float = 1.0,
+    *,
+    dirichlet_alpha: float | None = 0.1,
+    dirichlet_kappa: float | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Kernel density estimation with a Gaussian kernel.
 
@@ -234,7 +319,13 @@ def kde_gaussian(
     ``scale = bw_multiplier * grid_step``. Each sample's kernel is renormalized
     over the evaluation grid to avoid boundary mass loss on finite support.
 
-    Note:
+    Note: Dirichlet smoothing
+        When ``density=True``, applies add-α smoothing to the multinomial pmf
+        implied by the soft counts before converting to a pdf:
+        ``p_hat = (counts + α) / (N + α*K)``.
+        When ``density=False``, returns raw soft counts (no smoothing).
+
+    Note: JIT-compatibility
         For JIT-compatibility, provide concrete binning parameters. If
         `n_grid_points` or `min_max_vals` are ``None``, bin parameters are derived
         from data outside of JIT.
@@ -252,6 +343,13 @@ def kde_gaussian(
         weights: Optional nonnegative weights per sample (same length as `x`).
             When provided, kernel contributions are multiplied by these weights.
         bw_multiplier: Positive decay scale as a multiple of the bin width.
+        dirichlet_alpha: Per-bin pseudo-count for Dirichlet smoothing. Default is
+            ``0.1``. Note: ``dirichlet_kappa`` takes priority over this parameter if
+            provided.
+        dirichlet_kappa: Total pseudo-count for Dirichlet smoothing. If provided,
+            takes priority over ``dirichlet_alpha`` and ``alpha = kappa / K`` where K
+            is the number of grid points. If ``None``, uses ``dirichlet_alpha``
+            instead.
 
     Returns:
         A tuple ``(grid, values)`` where:
@@ -288,8 +386,19 @@ def kde_gaussian(
         jnp.asarray(1e-6, dtype=grid.dtype),
     )
 
+    # Resolve effective Dirichlet alpha (per bin)
+    # If kappa is provided, alpha = kappa / K; else use dirichlet_alpha or 0
+    K = int(n_grid_points)
+    if dirichlet_kappa is not None:
+        alpha_eff = float(dirichlet_kappa) / float(K)
+    elif dirichlet_alpha is not None:
+        alpha_eff = float(dirichlet_alpha)
+    else:
+        alpha_eff = 0.0
+    alpha_eff = max(alpha_eff, 0.0)  # guard
+
     @eqx.filter_jit
-    def _probs(x, grid, w, grid_step, bw):
+    def _probs(x, grid, w, grid_step, bw, alpha_eff):
         x_b = x[:, None]  # (N, 1)
         grid_b = grid[None, :]  # (1, G)
 
@@ -306,17 +415,31 @@ def kde_gaussian(
         )
         kernel_vals = kernel_vals / row_sum
 
+        # Soft counts (weighted if provided)
         if w is None:
-            counts = jnp.sum(kernel_vals, axis=0)
+            counts = jnp.sum(kernel_vals, axis=0)  # shape (G,)
         else:
             counts = jnp.sum(kernel_vals * w[:, None], axis=0)
 
-        if density:
-            denom = jnp.sum(counts)
-            denom = jnp.where(denom > 0, denom, jnp.asarray(1.0, dtype=counts.dtype))
-            counts = counts / (denom * grid_step)
+        if not density:
+            # Return raw soft counts; no Dirichlet smoothing here by design.
+            return counts
 
-        return counts
+        # Convert to a *pmf* with optional Dirichlet smoothing:
+        # p_hat = (counts + alpha) / (N + alpha*K)
+        N = jnp.sum(counts)
+        # Avoid 0/0 when N=0 and alpha=0: fall back to uniform
+        alpha = jnp.asarray(alpha_eff, dtype=counts.dtype)
+        Kf = jnp.asarray(counts.shape[-1], dtype=counts.dtype)
 
-    probabilities = _probs(x, grid, w, grid_step, bw)
-    return grid, probabilities
+        denom = N + alpha * Kf
+        denom = jnp.where(denom > 0, denom, jnp.asarray(1.0, dtype=counts.dtype))
+
+        pmf_smoothed = (counts + alpha) / denom
+
+        # Convert pmf to pdf on the grid
+        pdf = pmf_smoothed / grid_step
+        return pdf
+
+    values = _probs(x, grid, w, grid_step, bw, jnp.asarray(alpha_eff, dtype=grid.dtype))
+    return grid, values
