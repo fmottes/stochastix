@@ -15,7 +15,7 @@ if typing.TYPE_CHECKING:
 
 
 @eqx.filter_jit
-def _autocorr_1d(signal):
+def _autocorr_1d(signal: jnp.ndarray) -> jnp.ndarray:
     """JIT-compiled 1D autocorrelation."""
     n = signal.shape[0]
     signal_norm = signal - jnp.mean(signal)
@@ -70,7 +70,7 @@ def autocorrelation(
 
 
 @eqx.filter_jit
-def _cross_corr_1d(x1, x2):
+def _cross_corr_1d(x1: jnp.ndarray, x2: jnp.ndarray) -> tuple[jnp.ndarray, int]:
     """JIT-compiled 1D cross-correlation."""
     n_timesteps = x1.shape[0]
     x1_norm = x1 - jnp.mean(x1)
