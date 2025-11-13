@@ -121,6 +121,8 @@ def stochsimsolve(
                 t, step_result, controller_state, key_controller
             )
 
+        # If controller is triggered it will set a new dt
+        # It the new dt keeps the sim within the sim T boundary then it will be accepted
         new_t_candidate = t + step_result.dt
 
         # Reject state update if event would exceed time T
