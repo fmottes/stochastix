@@ -87,8 +87,12 @@ def rate_constant_conc_to_count(
     Returns:
         The propensity constant ``c`` (or its log10 if ``return_log`` is True).
     """
+    # Normalize dtypes to a common floating dtype for stable numeric ops
     k = jnp.asarray(rate_constant)
     vol = jnp.asarray(volume)
+    common_dtype = jnp.result_type(k, vol, jnp.array(1.0))
+    k = k.astype(common_dtype)
+    vol = vol.astype(common_dtype)
 
     if jnp.any(vol <= 0):
         raise ValueError(
@@ -97,21 +101,21 @@ def rate_constant_conc_to_count(
     if reaction_order is None:
         raise ValueError('reaction_order must be provided.')
 
-    m = jnp.asarray(reaction_order)
+    m = jnp.asarray(reaction_order, dtype=common_dtype)
     one_minus_m = 1 - m
 
     # log10(k)
-    tiny = (
-        jnp.finfo(k.dtype).tiny
-        if k.dtype.kind in ('f',)
-        else jnp.finfo(jnp.float32).tiny
-    )
-    log10_k = jnp.log10(jnp.clip(k, min=tiny, max=jnp.inf))
+    tiny = jnp.finfo(k.dtype).tiny
+    # Use maximum to avoid dtype surprises from clip with mixed dtypes
+    log10_k = jnp.log10(jnp.maximum(k, tiny))
 
     # log10 of scaling base
     if use_molar_units:
         NA = 6.02214076e23 if avogadro_number is None else avogadro_number
-        log10_base = jnp.log10(vol) + jnp.log10(jnp.asarray(NA))
+        NA = jnp.asarray(NA, dtype=common_dtype)
+        if jnp.any(NA <= 0):
+            raise ValueError('avogadro_number must be positive when provided.')
+        log10_base = jnp.log10(vol) + jnp.log10(NA)
     else:
         log10_base = jnp.log10(vol)
 
