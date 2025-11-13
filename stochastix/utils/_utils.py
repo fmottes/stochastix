@@ -5,6 +5,23 @@ from __future__ import annotations
 import jax.numpy as jnp
 
 
+def entropy(p: jnp.ndarray, base: float = 2) -> jnp.ndarray:
+    """MLE estimator for the entropy of a probability distribution.
+
+    Default calculation is in bits. No correction for finite sample size is applied.
+
+    Args:
+        p: The probability distribution.
+        base: The base of the logarithm. Default is 2 (bits).
+
+    Returns:
+        The entropy of the probability distribution.
+    """
+    # entr calculates -plogp
+    h = jnp.sum(entr_safe(p))
+    return h / jnp.log2(base)
+
+
 def entr_safe(p):
     """Like jax.scipy.special.entr, but with zero handling.
 
@@ -38,23 +55,6 @@ def algebraic_sigmoid(x: jnp.ndarray):
 
     """
     return 0.5 + (x / (2 * jnp.sqrt(1 + x**2)))
-
-
-def entropy(p: jnp.ndarray, base: float = 2) -> jnp.ndarray:
-    """MLE estimator for the entropy of a probability distribution.
-
-    Default calculation is in bits. No correction for finite sample size is applied.
-
-    Args:
-        p: The probability distribution.
-        base: The base of the logarithm. Default is 2 (bits).
-
-    Returns:
-        The entropy of the probability distribution.
-    """
-    # entr calculates -plogp
-    h = jnp.sum(entr_safe(p))
-    return h / jnp.log2(base)
 
 
 def rate_constant_conc_to_count(
