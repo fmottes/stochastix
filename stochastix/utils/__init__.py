@@ -7,8 +7,6 @@ from ._utils import (
     rate_constant_conc_to_count,
 )
 from .analysis import (
-    autocorrelation,
-    cross_correlation,
     differentiable_histogram,
     differentiable_histogram2d,
     differentiable_state_histogram,
