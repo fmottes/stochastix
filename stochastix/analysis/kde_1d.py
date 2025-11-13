@@ -63,6 +63,7 @@ def kde_triangular(
 
     Returns:
         A tuple ``(grid, values)`` where:
+
             - ``grid``: 1D array of evaluation points (bin centers), shape
               ``(n_grid_points,)``.
             - ``values``: 1D array of KDE values at the grid points, shape
@@ -209,6 +210,7 @@ def kde_exponential(
 
     Returns:
         A tuple ``(grid, values)`` where:
+
             - ``grid``: 1D array of evaluation points (bin centers), shape
               ``(n_grid_points,)``.
             - ``values``: 1D array of KDE values at the grid points, shape
@@ -353,6 +355,7 @@ def kde_gaussian(
 
     Returns:
         A tuple ``(grid, values)`` where:
+
             - ``grid``: 1D array of evaluation points (bin centers), shape
               ``(n_grid_points,)``.
             - ``values``: 1D array of KDE values at the grid points, shape

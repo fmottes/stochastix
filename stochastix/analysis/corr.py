@@ -45,6 +45,7 @@ def autocorrelation(
 
     Returns:
         Tuple `(lags, autocorrs)` where:
+
             - `lags`: The time lags for the autocorrelation, in the same units as
               the simulation time.
             - `autocorrs`: A 2D array where `autocorrs[:, i]` is the
@@ -106,6 +107,7 @@ def cross_correlation(
 
     Returns:
         A tuple `(lags, cross_corr)` where:
+
             - `lags`: The time lags for the cross-correlation.
             - `cross_corr`: A 1D array of the cross-correlation values.
     """

@@ -49,6 +49,7 @@ def differentiable_histogram(
 
     Returns:
         A tuple `(bins, probabilities)` where:
+
             - `bins`: The center of the histogram bins.
             - `probabilities`: A 1D array of the probability mass of the data.
     """
@@ -144,6 +145,7 @@ def differentiable_histogram2d(
 
     Returns:
         A tuple `(bins1, bins2, probabilities)` where:
+
             - `bins1`: The center of the histogram bins for the first dimension.
             - `bins2`: The center of the histogram bins for the second dimension.
             - `probabilities`: A 2D array of the probability mass of the data.
@@ -312,6 +314,7 @@ def differentiable_state_histogram(
 
     Returns:
         A tuple `(bins, probabilities)` where:
+
             - `bins`: The center of the histogram bins.
             - `probabilities`: A 2D array where `probabilities[:, i]` is the
               probability mass of the i-th species at the specified time point.
@@ -387,6 +390,7 @@ def differentiable_dwell_histogram(
 
     Returns:
         A tuple ``(bins, probabilities)`` where:
+
             - ``bins``: The center of the histogram bins, shape ``(n_bins,)``.
             - ``probabilities``: A 2D array of shape ``(n_bins, n_species)``. If
               ``density=True``, these are dwell-time fractions; otherwise, total

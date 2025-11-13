@@ -62,6 +62,7 @@ def state_kde(
 
     Returns:
         A tuple ``(grid, values)`` where:
+
             - ``grid``: 1D array of evaluation points (grid centers), shape
               ``(n_grid_points,)``.
             - ``values``: 2D array where ``values[:, i]`` is the KDE values for the
