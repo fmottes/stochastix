@@ -3,6 +3,7 @@
 from .corr import autocorrelation, cross_correlation
 from .hist import state_kde
 from .kde_1d import kde_exponential, kde_gaussian, kde_triangular
+from .mi import mutual_information, state_mutual_info
 
 __all__ = [
     'autocorrelation',
@@ -10,5 +11,7 @@ __all__ = [
     'kde_exponential',
     'kde_gaussian',
     'kde_triangular',
+    'mutual_information',
     'state_kde',
+    'state_mutual_info',
 ]
