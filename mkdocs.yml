@@ -19,6 +19,7 @@ nav:
     - Forward Simulations:
       - Simulation Examples: 'example-notebooks/simulation-examples.ipynb'
       - CME <> ODE <> SDE Conversion: 'example-notebooks/model-conversion.ipynb'
+      - Mutual Information: 'example-notebooks/mutual-information-example.ipynb'
 
     - Optimization:
       - Simple Gene Expression Model: 'example-notebooks/simple-gene-expression.ipynb'
