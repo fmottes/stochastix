@@ -43,11 +43,11 @@ nav:
 
     - Systems: 'api/systems.md'
     - Generators: 'api/generators.md'
+    - Analysis: 'api/analysis.md'
 
     - Utilities: 
       - Optimization: 'api/utils/optimization.md'
       - Visualization: 'api/utils/visualization.md'
-      - Analysis: 'api/utils/analysis.md'
       - Basic Neural Networks: 'api/utils/neural-networks.md'
       - Misc: 'api/utils/misc.md'
 
