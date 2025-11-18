@@ -129,13 +129,14 @@ def stochsimsolve(
         # Can be confusing when calculating final state statistics
         would_exceed_T = new_t_candidate > T
         new_t = jnp.where(would_exceed_T, T, new_t_candidate)
+        new_dt = jnp.where(would_exceed_T, T - t, step_result.dt)  # for consitency
         new_x = jnp.where(would_exceed_T, x, step_result.x_new)
         new_r = jnp.where(would_exceed_T, reaction_null, step_result.reaction_idx)
         new_a = jnp.where(would_exceed_T, jnp.zeros_like(a), step_result.propensities)
 
         new_step_result = SimulationStep(
             x_new=new_x,
-            dt=new_t - t,
+            dt=new_dt,
             reaction_idx=new_r,
             propensities=new_a,
         )
