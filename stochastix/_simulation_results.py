@@ -17,10 +17,12 @@ class SimulationResults(eqx.Module):
     utilities for indexing, cleaning, and interpolating the results.
 
     Attributes:
-        x: State trajectory over time, shape (n_timepoints, n_species).
-        t: Time points corresponding to state changes.
-        propensities: Reaction propensities at each time step.
-        reactions: Index of reactions that occurred at each step.
+        x: State trajectory over time. Shape (n_timepoints, n_species) for full
+            trajectory, or (2, n_species) for initial/final only mode.
+        t: Time points corresponding to state changes. Shape (n_timepoints,) for
+            full trajectory, or (2,) for initial/final only mode.
+        propensities: Reaction propensities at each time step, or None if not saved.
+        reactions: Index of reactions that occurred at each step, or None if not saved.
         time_overflow: True if simulation stopped due to reaching max_steps before time T.
         species: Names of the species in the simulation.
 
@@ -105,8 +107,12 @@ class SimulationResults(eqx.Module):
         if is_pytree:
             # Assumes at least one leaf exists
             first_leaf = jtu.tree_leaves(self.x)[0]
+            # Check if batched: >1 means batched (batch, time, species)
+            # ==1 means single trajectory (time, species) or initial/final (2, species)
             is_batched = first_leaf.ndim > 1
         else:
+            # Check if batched: >2 means batched (batch, time, species)
+            # ==2 means single trajectory (time, species) or initial/final (2, species)
             is_batched = self.x.ndim > 2
 
         def _apply_idx(arr, is_scalar=False):
@@ -142,7 +148,8 @@ class SimulationResults(eqx.Module):
         """Cleans simulation results by removing padded, unused steps.
 
         Note:
-            Does not work with batched simulations.
+            Does not work with batched simulations or initial/final only mode
+            (when x has shape (2, ...)).
 
         Stochastic simulations pre-allocate arrays of a fixed size for JIT
         compilation. This function removes the trailing steps that were allocated
@@ -158,7 +165,7 @@ class SimulationResults(eqx.Module):
             SimulationResults: A new container with only the valid steps of the simulation trajectory.
 
         Raises:
-            NotImplementedError: If called on batched simulation results.
+            NotImplementedError: If called on batched simulation results or initial/final only mode.
         """
         if self.reactions is None:
             warnings.warn(
@@ -166,7 +173,22 @@ class SimulationResults(eqx.Module):
             )
             return self
 
+        # Check if this is initial/final only mode (shape (2, ...))
         is_pytree = not isinstance(self.x, jnp.ndarray)
+        if is_pytree:
+            first_leaf = jtu.tree_leaves(self.x)[0]
+            is_initial_final_only = first_leaf.shape[0] == 2
+        else:
+            is_initial_final_only = self.x.shape[0] == 2
+
+        if is_initial_final_only:
+            warnings.warn(
+                'The `clean` method does not apply to initial/final only mode '
+                '(save_trajectory=False). Returning original object.'
+            )
+            return self
+
+        # Check if batched (already have is_pytree from above)
         if is_pytree:
             # Assumes at least one leaf exists
             first_leaf = jtu.tree_leaves(self.x)[0]
@@ -197,7 +219,7 @@ class SimulationResults(eqx.Module):
             x_cleaned = jnp.vstack([self.x[0], self.x[1:][mask]])
 
         t = jnp.hstack([self.t[0], self.t[1:][mask]])
-        a = self.propensities[mask]
+        a = self.propensities[mask] if self.propensities is not None else None
         r = self.reactions[mask]
 
         return SimulationResults(x_cleaned, t, a, r, self.time_overflow, self.species)

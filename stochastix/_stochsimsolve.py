@@ -28,6 +28,8 @@ def stochsimsolve(
     max_steps: int = int(1e5),
     solver: AbstractStochasticSolver = DirectMethod(),
     controller: AbstractController | None = None,
+    save_trajectory: bool = True,
+    save_propensities: bool = True,
 ) -> SimulationResults:
     """Run a stochastic simulation of a reaction network.
 
@@ -45,19 +47,28 @@ def stochsimsolve(
         max_steps: Maximum number of simulation steps (needed for jit compilation).
         solver: The stochastic solver to use.
         controller: External state control during simulation.
+        save_trajectory: If True, store full trajectory. If False, store only initial
+            and final states (shape (2, ...)). Defaults to True.
+        save_propensities: If True, store propensities at each step. If False, set
+            propensities to None. Defaults to True.
 
     Returns:
         SimulationResults. An object with the following attributes:
 
-            - `x`: State trajectory over time, shape (n_timepoints, n_species).
-            - `t`: Time points corresponding to state changes.
-            - `propensities`: Reaction propensities at each time step.
+            - `x`: State trajectory over time. Shape (n_timepoints, n_species) if
+              `save_trajectory=True`, or (2, n_species) if `save_trajectory=False`.
+            - `t`: Time points corresponding to state changes. Shape (n_timepoints,)
+              if `save_trajectory=True`, or (2,) if `save_trajectory=False`.
+            - `propensities`: Reaction propensities at each time step, or None if
+              `save_propensities=False`.
             - `reactions`: Index of reactions that occurred at each step.
             - `time_overflow`: True if simulation stopped due to reaching
               max_steps before time T.
 
     Note:
         This function is automatically JIT-compiled with `equinox.filter_jit`.
+        The `save_trajectory` and `save_propensities` parameters are static (compile-time
+        constants) and changing them will trigger re-compilation.
 
     Example: Basic usage
         See [Running Simulations](../user-guide/running-simulations.md) for more details.
@@ -67,13 +78,28 @@ def stochsimsolve(
         x0 = jax.numpy.array(...)
         ssa_results = stochastix.stochsimsolve(key, network, x0, T=1000.0)
         ```
+
+    Example: Memory-efficient simulation
+        ```python
+        # Only save initial and final states, no propensities
+        results = stochastix.stochsimsolve(
+            key, network, x0, T=1000.0,
+            save_trajectory=False, save_propensities=False
+        )
+        ```
     """
 
-    # Stepping function for jax.lax.scan
-    def _step(carry, key):
+    # Core stepping logic shared between scan and while_loop
+    def _do_step_logic(t, x, controller_state, solver_state, key_step, reaction_null):
+        """Core stepping logic that performs one simulation step."""
+        key_solver, key_controller = jax.random.split(key_step)
+
+        # compute propensities
+        a = solver.propensities(network, x, t)
+        a0 = jnp.sum(a)
+
         def _do_step(args):
             network, t, x, a, solver_state, key_solver = args
-            # we need to pass the key twice, once for the step, once for the stop
             step_result, solver_state_new = solver.step(
                 network, t, x, a, solver_state, key=key_solver
             )
@@ -92,20 +118,6 @@ def stochsimsolve(
             )
 
             return step_result, solver_state
-
-        t, x, controller_state, solver_state = carry
-
-        key_solver, key_controller = jax.random.split(key)
-
-        # compute propensities
-        a = solver.propensities(network, x, t)
-        a0 = jnp.sum(a)
-
-        # Define reaction_null matching solver type and shapes
-        if solver.is_exact_solver:
-            reaction_null = jnp.array(-1).astype(jnp.result_type(int))
-        else:
-            reaction_null = jnp.zeros_like(a)
 
         do_step = jnp.logical_and(t < T, a0 > 0)
 
@@ -141,8 +153,7 @@ def stochsimsolve(
             propensities=new_a,
         )
 
-        new_carry = (new_t, new_x, controller_state, solver_state_new)
-        return new_carry, new_step_result
+        return new_t, new_x, controller_state, solver_state_new, new_step_result
 
     #########################################################
     # Solver and Controller Initialization
@@ -164,35 +175,144 @@ def stochsimsolve(
             network, t0, x_init, a_init, key=key_controller_init
         )
 
+    # Define reaction_null matching solver type and shapes
+    if solver.is_exact_solver:
+        reaction_null = jnp.array(-1).astype(jnp.result_type(int))
+    else:
+        reaction_null = jnp.zeros_like(a_init)
+
     #########################################################
     # Simulation Loop
     #########################################################
-    keys = jax.random.split(key_loop, max_steps)
-    carry0 = (t0, x_init, controller_state, solver_state0)
+    if save_trajectory:
+        # Mode B: Full trajectory using scan
+        # Note: In scan mode, propensities are still computed and stored in history
+        # (needed for step logic), but set to None in final result if save_propensities=False
+        # Stepping function for jax.lax.scan
+        # Use recursive key splitting to match while_loop behavior and ensure consistency
+        def _step(carry, _):
+            t, x, controller_state, solver_state, key_current = carry
 
-    _, history = jax.lax.scan(_step, carry0, keys)
+            # Recursive split to match while_loop behavior
+            key_step, key_next = jax.random.split(key_current)
 
-    x_h = history.x_new
-    dt_h = history.dt
-    a_h = history.propensities
-    r_h = history.reaction_idx
+            new_t, new_x, new_controller_state, new_solver_state, new_step_result = (
+                _do_step_logic(
+                    t, x, controller_state, solver_state, key_step, reaction_null
+                )
+            )
+            new_carry = (new_t, new_x, new_controller_state, new_solver_state, key_next)
 
-    # Prepend initial state
-    xs = jnp.vstack([x_init, x_h])
-    ts = jnp.cumsum(jnp.hstack([jnp.array(t0), dt_h]))
+            if not save_propensities:
+                # Create a step result without propensities to save memory
+                new_step_result = SimulationStep(
+                    x_new=new_step_result.x_new,
+                    dt=new_step_result.dt,
+                    reaction_idx=new_step_result.reaction_idx,
+                    propensities=None,
+                )
 
-    # Check if simulation stopped due to time limit or max steps
-    time_overflow = jnp.logical_and(ts[-1] < T, a_h[-1].sum() > 0)
+            return new_carry, new_step_result
 
-    xs = state_to_pytree(x0, network.species, xs)
+        # Include key_loop in the carry and use length parameter instead of pre-split keys
+        carry0 = (t0, x_init, controller_state, solver_state0, key_loop)
 
-    results = SimulationResults(
-        x=xs,
-        t=ts,
-        propensities=a_h,
-        reactions=r_h,
-        time_overflow=time_overflow,
-        species=network.species,
-    )
+        _, history = jax.lax.scan(_step, carry0, None, length=max_steps)
+
+        x_h = history.x_new
+        dt_h = history.dt
+        a_h = history.propensities
+        r_h = history.reaction_idx
+
+        # Prepend initial state
+        xs = jnp.vstack([x_init, x_h])
+        ts = jnp.cumsum(jnp.hstack([jnp.array(t0), dt_h]))
+
+        # Check if simulation stopped due to time limit or max steps
+        if save_propensities:
+            time_overflow = jnp.logical_and(ts[-1] < T, a_h[-1].sum() > 0)
+        else:
+            # Need to check final propensities for time_overflow
+            final_a = solver.propensities(network, x_h[-1], ts[-1])
+            time_overflow = jnp.logical_and(ts[-1] < T, final_a.sum() > 0)
+
+        xs = state_to_pytree(x0, network.species, xs)
+
+        results = SimulationResults(
+            x=xs,
+            t=ts,
+            propensities=a_h if save_propensities else None,
+            reactions=r_h,
+            time_overflow=time_overflow,
+            species=network.species,
+        )
+
+    else:
+        # Mode A: Only initial and final states using while_loop
+        def _cond(carry):
+            t, x, controller_state, solver_state, step_count, key_current = carry
+            a = solver.propensities(network, x, t)
+            a0 = jnp.sum(a)
+            return jnp.logical_and(
+                jnp.logical_and(t < T, a0 > 0), step_count < max_steps
+            )
+
+        def _body(carry):
+            t, x, controller_state, solver_state, step_count, key_current = carry
+            key_step, key_next = jax.random.split(key_current)
+            new_t, new_x, new_controller_state, new_solver_state, new_step_result = (
+                _do_step_logic(
+                    t, x, controller_state, solver_state, key_step, reaction_null
+                )
+            )
+            return (
+                new_t,
+                new_x,
+                new_controller_state,
+                new_solver_state,
+                step_count + 1,
+                key_next,
+            )
+
+        carry0 = (t0, x_init, controller_state, solver_state0, 0, key_loop)
+        final_carry = jax.lax.while_loop(_cond, _body, carry0)
+        (
+            t_final,
+            x_final,
+            controller_state_final,
+            solver_state_final,
+            step_count_final,
+            _,
+        ) = final_carry
+
+        # Stack initial and final states
+        xs = jnp.vstack([x_init, x_final])
+        ts = jnp.array([t0, t_final])
+
+        # Compute propensities if needed
+        if save_propensities:
+            a_init_array = a_init
+            a_final = solver.propensities(network, x_final, t_final)
+            a_stack = jnp.vstack([a_init_array, a_final])
+        else:
+            a_stack = None
+
+        # Check if simulation stopped due to time limit or max steps
+        a_final_check = solver.propensities(network, x_final, t_final)
+        time_overflow = jnp.logical_and(
+            t_final < T,
+            jnp.logical_and(a_final_check.sum() > 0, step_count_final >= max_steps),
+        )
+
+        xs = state_to_pytree(x0, network.species, xs)
+
+        results = SimulationResults(
+            x=xs,
+            t=ts,
+            propensities=a_stack,
+            reactions=None,
+            time_overflow=time_overflow,
+            species=network.species,
+        )
 
     return results
