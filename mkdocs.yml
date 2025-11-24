@@ -37,6 +37,7 @@ nav:
 
     - Simulation:
       - stochsimsolve: 'api/stochsimsolve.md'
+      - faststochsimsolve: 'api/faststochsimsolve.md'
       - Solvers: 'api/solvers.md'
       - Controllers: 'api/controllers.md'
       - SimulationResults: 'api/simulation-results.md'

@@ -20,6 +20,7 @@ This is the API reference for `stochastix`. For usage examples and guides see [H
 **Simulation**
 
 *   [`stochastix.stochsimsolve`][stochsimsolve] : Main simulation entry point. Solve a stochastic initial value problem with a given solver.
+*   [`stochastix.faststochsimsolve`][faststochsimsolve] : Fast simulation entry point. Solve a stochastic initial value problem with a given solver, but stop early if the simulation finishes before reaching `max_steps`.
 *   [`stochastix.SimulationResults`][simulation-results] : Results of a stochastic simulation with utilities (interpolation and cleaning results).
 *   [`stochastix.solvers`][solvers] : Solvers for stochastic simulations.
 *   [`stochastix.controllers`][controllers] : Controllers for stochastic simulations.
@@ -43,6 +44,7 @@ This is the API reference for `stochastix`. For usage examples and guides see [H
 
 
 [stochsimsolve]: stochsimsolve.md
+[faststochsimsolve]: faststochsimsolve.md
 [simulation-results]: simulation-results.md
 [systems]: systems.md
 [reaction]: reaction.md

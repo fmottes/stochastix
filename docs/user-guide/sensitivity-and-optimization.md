@@ -114,6 +114,7 @@ Tips:
 - Smaller `logits_scale` tightens the relaxation but can increase gradient variance; tune per model.
 - `exact_fwd=True` (default) keeps the trajectory exact and uses straight-through gradients.
 - Consider averaging over multiple keys with `vmap`.
+- For very long simulations or complex kinetics (e.g., neural network propensities), use `checkpoint=True` in `stochsimsolve` to reduce memory usage during backpropagation. This is especially effective when `save_trajectory=True` since recomputation can leverage stored states.
 
 
 ## Gradient-based optimization

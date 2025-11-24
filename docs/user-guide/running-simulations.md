@@ -140,3 +140,4 @@ Pair with utilities in `stochastix.utils.optimization` (e.g., `reinforce_loss`, 
 
 - The first call to `stochsimsolve` JIT-compiles; subsequent calls are fast when shapes (e.g., `max_steps`) are unchanged.
 - Choose `max_steps` large enough to cover expected events but not excessively large to avoid memory overhead.
+- For long simulations or when computing gradients (especially with complex kinetics like neural networks), use `checkpoint=True` to reduce memory usage during backpropagation. This trades computation time for memory by recomputing intermediate states during the backward pass.
