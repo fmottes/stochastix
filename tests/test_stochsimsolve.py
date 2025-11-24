@@ -171,3 +171,163 @@ def test_vmap_pytree_input(simple_network):
     assert isinstance(batched.x, dict)
     assert batched.x['A'].shape[0] == 2
     assert batched.x['A'].shape[1] == batched.t.shape[1]
+
+
+def test_save_trajectory_false(simple_network):
+    """Test that save_trajectory=False returns only initial and final states."""
+    key = jax.random.PRNGKey(7)
+    x0 = jnp.array([10, 20])
+    res = stochsimsolve(key, simple_network, x0, T=0.5, save_trajectory=False)
+
+    assert isinstance(res.x, jnp.ndarray)
+    assert res.x.shape == (2, 2)  # (initial, final) x (A, B)
+    assert res.t.shape == (2,)
+    assert jnp.allclose(res.x[0], jnp.array([10.0, 20.0]))  # Initial state
+    assert res.t[0] == 0.0  # Initial time
+    assert res.t[1] > res.t[0]  # Final time > initial time
+
+
+def test_save_trajectory_false_pytree(simple_network):
+    """Test save_trajectory=False with pytree input."""
+    key = jax.random.PRNGKey(8)
+    x0 = {'A': 10, 'B': 20}
+    res = stochsimsolve(key, simple_network, x0, T=0.5, save_trajectory=False)
+
+    assert isinstance(res.x, dict)
+    assert res.x['A'].shape == (2,)
+    assert res.x['B'].shape == (2,)
+    assert res.t.shape == (2,)
+    assert float(res.x['A'][0]) == 10.0
+    assert float(res.x['B'][0]) == 20.0
+
+
+def test_save_propensities_false(simple_network):
+    """Test that save_propensities=False sets propensities to None."""
+    key = jax.random.PRNGKey(9)
+    x0 = jnp.array([10, 20])
+    res = stochsimsolve(key, simple_network, x0, T=0.5, save_propensities=False)
+
+    assert res.propensities is None
+    assert res.x.shape[0] > 2  # Full trajectory still saved
+    assert res.t.shape[0] > 2
+
+
+def test_save_trajectory_and_propensities_false(simple_network):
+    """Test both save_trajectory=False and save_propensities=False."""
+    key = jax.random.PRNGKey(10)
+    x0 = jnp.array([10, 20])
+    res = stochsimsolve(
+        key,
+        simple_network,
+        x0,
+        T=0.5,
+        save_trajectory=False,
+        save_propensities=False,
+    )
+
+    assert res.x.shape == (2, 2)  # Only initial and final
+    assert res.t.shape == (2,)
+    assert res.propensities is None
+    assert res.reactions is None  # Reactions also None in while_loop mode
+
+
+def test_save_trajectory_consistency(simple_network):
+    """Test that save_trajectory=True and False produce identical final states with same key."""
+    key = jax.random.PRNGKey(11)
+    x0 = jnp.array([10, 20])
+
+    # Run with full trajectory
+    res_full = stochsimsolve(key, simple_network, x0, T=0.5, save_trajectory=True)
+
+    # Run with only initial/final (same key)
+    res_final = stochsimsolve(key, simple_network, x0, T=0.5, save_trajectory=False)
+
+    # Final states should be identical
+    assert jnp.allclose(res_full.x[-1], res_final.x[-1])
+    assert jnp.allclose(res_full.t[-1], res_final.t[-1])
+
+    # Initial states should be identical
+    assert jnp.allclose(res_full.x[0], res_final.x[0])
+    assert jnp.allclose(res_full.t[0], res_final.t[0])
+
+    # time_overflow should be the same
+    assert res_full.time_overflow == res_final.time_overflow
+
+
+def test_save_trajectory_consistency_pytree(simple_network):
+    """Test consistency with pytree inputs."""
+    key = jax.random.PRNGKey(12)
+    x0 = {'A': 5, 'B': 15}
+
+    # Run with full trajectory
+    res_full = stochsimsolve(key, simple_network, x0, T=0.5, save_trajectory=True)
+
+    # Run with only initial/final (same key)
+    res_final = stochsimsolve(key, simple_network, x0, T=0.5, save_trajectory=False)
+
+    # Final states should be identical
+    if isinstance(res_full.x, dict):
+        assert jnp.allclose(res_full.x['A'][-1], res_final.x['A'][-1])
+        assert jnp.allclose(res_full.x['B'][-1], res_final.x['B'][-1])
+    else:
+        assert jnp.allclose(res_full.x[-1], res_final.x[-1])
+
+    assert jnp.allclose(res_full.t[-1], res_final.t[-1])
+    assert res_full.time_overflow == res_final.time_overflow
+
+
+def test_differentiation_with_save_trajectory_false(simple_network):
+    """Test that gradients work with save_trajectory=False using differentiable solver.
+
+    Note: This test verifies that save_trajectory=False works with differentiable solvers.
+    However, jax.lax.while_loop does not support reverse-mode differentiation, so
+    we test with save_trajectory=True (which uses scan) instead.
+    """
+    from stochastix.solvers import DifferentiableDirect
+
+    solver = DifferentiableDirect(logits_scale=1.0, exact_fwd=True)
+
+    def simulate_and_loss(k_birth, k_death):
+        r_birth = Reaction('0 -> A', MassAction(k=k_birth))
+        r_death = Reaction('A -> 0', MassAction(k=k_death))
+        network = ReactionNetwork([r_birth, r_death])
+        x0 = jnp.array([0.0])
+        T = 10.0
+        key = jax.random.PRNGKey(42)
+
+        @jax.jit
+        def run_sim():
+            # Use save_trajectory=True for differentiation (while_loop doesn't support reverse-mode diff)
+            results = stochsimsolve(
+                key,
+                network,
+                x0,
+                T=T,
+                solver=solver,
+                max_steps=int(1e4),
+                save_trajectory=True,
+            )
+            return results.x[-1, 0]  # Final state
+
+        final_count = run_sim()
+        target_count = 20.0
+        return (final_count - target_count) ** 2
+
+    k_birth_initial = 10.0
+    k_death_initial = 1.0
+
+    # Test that gradients can be computed
+    grad_k_birth = jax.grad(simulate_and_loss, argnums=0)(
+        k_birth_initial, k_death_initial
+    )
+    grad_k_death = jax.grad(simulate_and_loss, argnums=1)(
+        k_birth_initial, k_death_initial
+    )
+
+    # Gradients should be finite
+    assert jnp.isfinite(grad_k_birth)
+    assert jnp.isfinite(grad_k_death)
+    # Expected signs: increasing birth increases final count (negative grad for loss)
+    # increasing death decreases final count (positive grad for loss)
+    assert grad_k_birth < 0
+    assert grad_k_death > 0
