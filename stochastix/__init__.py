@@ -16,7 +16,7 @@ from . import (
 )
 from ._simulation_results import SimulationResults
 from ._state_utils import add_to_state, pytree_to_state, state_to_pytree
-from ._stochsimsolve import stochsimsolve
+from ._stochsimsolve import faststochsimsolve, stochsimsolve
 from ._systems import MeanFieldModel, StochasticModel
 from .reaction import Reaction, ReactionNetwork
 from .solvers import (
@@ -40,6 +40,7 @@ __all__ = [
     'systems',
     'StochasticModel',
     'stochsimsolve',
+    'faststochsimsolve',
     'pytree_to_state',
     'state_to_pytree',
     'add_to_state',

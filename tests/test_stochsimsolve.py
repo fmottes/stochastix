@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import pytest
 
 from stochastix import (
+    faststochsimsolve,
     pytree_to_state,
     state_to_pytree,
     stochsimsolve,
@@ -138,8 +139,7 @@ def test_jit_with_pytree(simple_network):
     key = jax.random.PRNGKey(4)
     x0 = {'A': 2, 'B': 4}
     # The stochsimsolve function is already decorated with @eqx.filter_jit.
-    # We test that it runs correctly by simply calling it. Nesting JITs is
-    # an anti-pattern and can cause low-level memory errors.
+    # We test that it runs correctly by simply calling it.
     res = stochsimsolve(key, simple_network, x0, T=0.4)
     assert isinstance(res.x, dict)
     assert res.x['A'].shape[0] == res.t.shape[0]
@@ -277,12 +277,7 @@ def test_save_trajectory_consistency_pytree(simple_network):
 
 
 def test_differentiation_with_save_trajectory_false(simple_network):
-    """Test that gradients work with save_trajectory=False using differentiable solver.
-
-    Note: This test verifies that save_trajectory=False works with differentiable solvers.
-    However, jax.lax.while_loop does not support reverse-mode differentiation, so
-    we test with save_trajectory=True (which uses scan) instead.
-    """
+    """Test that gradients work with save_trajectory=False using differentiable solver."""
     from stochastix.solvers import DifferentiableDirect
 
     solver = DifferentiableDirect(logits_scale=1.0, exact_fwd=True)
@@ -297,7 +292,7 @@ def test_differentiation_with_save_trajectory_false(simple_network):
 
         @jax.jit
         def run_sim():
-            # Use save_trajectory=True for differentiation (while_loop doesn't support reverse-mode diff)
+            # Now save_trajectory=False supports differentiation (uses scan)
             results = stochsimsolve(
                 key,
                 network,
@@ -305,7 +300,7 @@ def test_differentiation_with_save_trajectory_false(simple_network):
                 T=T,
                 solver=solver,
                 max_steps=int(1e4),
-                save_trajectory=True,
+                save_trajectory=False,
             )
             return results.x[-1, 0]  # Final state
 
@@ -331,3 +326,74 @@ def test_differentiation_with_save_trajectory_false(simple_network):
     # increasing death decreases final count (positive grad for loss)
     assert grad_k_birth < 0
     assert grad_k_death > 0
+
+
+def test_faststochsimsolve(simple_network):
+    """Test that faststochsimsolve works correctly."""
+    key = jax.random.PRNGKey(13)
+    x0 = jnp.array([10, 20])
+    res = faststochsimsolve(key, simple_network, x0, T=0.5)
+
+    assert isinstance(res.x, jnp.ndarray)
+    assert res.x.shape == (2, 2)  # (initial, final) x (A, B)
+    assert res.t.shape == (2,)
+    assert jnp.allclose(res.x[0], jnp.array([10.0, 20.0]))  # Initial state
+    assert res.t[0] == 0.0  # Initial time
+    assert res.t[1] > res.t[0]  # Final time > initial time
+    assert res.reactions is None  # Reactions not tracked in while_loop mode
+
+
+def test_faststochsimsolve_consistency(simple_network):
+    """Test that faststochsimsolve produces same results as stochsimsolve with same key."""
+    key = jax.random.PRNGKey(14)
+    x0 = jnp.array([10, 20])
+
+    # Run with faststochsimsolve (while_loop, stops early)
+    res_fast = faststochsimsolve(key, simple_network, x0, T=0.5)
+
+    # Run with stochsimsolve save_trajectory=False (scan, same key)
+    res_scan = stochsimsolve(key, simple_network, x0, T=0.5, save_trajectory=False)
+
+    # Final states should be identical (same random sequence)
+    assert jnp.allclose(res_fast.x[-1], res_scan.x[-1])
+    assert jnp.allclose(res_fast.t[-1], res_scan.t[-1])
+    assert jnp.allclose(res_fast.x[0], res_scan.x[0])
+    assert jnp.allclose(res_fast.t[0], res_scan.t[0])
+
+
+def test_faststochsimsolve_no_differentiation(simple_network):
+    """Test that faststochsimsolve does not support differentiation."""
+    from stochastix.solvers import DifferentiableDirect
+
+    solver = DifferentiableDirect(logits_scale=1.0, exact_fwd=True)
+
+    def simulate_and_loss(k_birth, k_death):
+        r_birth = Reaction('0 -> A', MassAction(k=k_birth))
+        r_death = Reaction('A -> 0', MassAction(k=k_death))
+        network = ReactionNetwork([r_birth, r_death])
+        x0 = jnp.array([0.0])
+        T = 10.0
+        key = jax.random.PRNGKey(42)
+
+        @jax.jit
+        def run_sim():
+            results = faststochsimsolve(
+                key,
+                network,
+                x0,
+                T=T,
+                solver=solver,
+                max_steps=int(1e4),
+            )
+            return results.x[-1, 0]  # Final state
+
+        final_count = run_sim()
+        target_count = 20.0
+        return (final_count - target_count) ** 2
+
+    k_birth_initial = 10.0
+    k_death_initial = 1.0
+
+    # Test that gradients cannot be computed (should raise error)
+    with pytest.raises(ValueError, match='Reverse-mode differentiation'):
+        jax.grad(simulate_and_loss, argnums=0)(k_birth_initial, k_death_initial)
