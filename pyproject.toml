@@ -12,7 +12,7 @@ exclude = [
 
 [project]
 name = "stochastix"
-version = "0.1.1"
+version = "0.1.2"
 description = "Differentiable, hardware accelerated (stochastic) kinetic models in JAX."
 readme = "README.md"
 authors = [
