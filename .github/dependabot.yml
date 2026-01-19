@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # GitHub Actions
+  # Note: Dependabot doesn't support uv yet. Use `uv lock --upgrade` to update Python dependencies.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "ci"
