@@ -11,7 +11,7 @@ Kinetic laws for chemical reactions.
       inherited_members: false
 
 ---
-::: stochastix.kinetics.MassAction 
+::: stochastix.kinetics.MassAction
     options:
       members: false
       inherited_members: false
@@ -86,7 +86,7 @@ Kinetic laws for chemical reactions.
 ---
 ::: stochastix.kinetics.AbstractKinetics
     options:
-      members: 
+      members:
         - propensity_fn
         - ode_rate_fn
         - _bind_to_network

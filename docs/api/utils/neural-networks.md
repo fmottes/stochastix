@@ -2,4 +2,4 @@
 
 ::: stochastix.utils.nn.Linear
 
-::: stochastix.utils.nn.MultiLayerPerceptron 
+::: stochastix.utils.nn.MultiLayerPerceptron

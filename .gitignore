@@ -154,7 +154,7 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-# Ruff 
+# Ruff
 .ruff_cache/
 
 # VSCode

@@ -6,7 +6,7 @@ edit_uri: ""
 nav:
   - Getting Started: 'index.md'
   - Basic Usage: 'basic-usage.md'
-  
+
   - User Guides:
     - Key Concepts: 'user-guide/key-concepts.md'
     - Defining models: 'user-guide/defining-models.md'
@@ -47,7 +47,7 @@ nav:
     - Generators: 'api/generators.md'
     - Analysis: 'api/analysis.md'
 
-    - Utilities: 
+    - Utilities:
       - Optimization: 'api/utils/optimization.md'
       - Visualization: 'api/utils/visualization.md'
       - Basic Neural Networks: 'api/utils/neural-networks.md'
@@ -98,7 +98,7 @@ plugins:
   - offline
   - search:
       separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
-  - ipynb 
+  - ipynb
   - mkdocstrings:
       handlers:
         python:
@@ -119,7 +119,7 @@ plugins:
               ignore_init_summary: true
             merge_init_into_class: true
             docstring_section_style: list
-                
+
 
 markdown_extensions:
   - pymdownx.arithmatex:  # Render LaTeX via MathJax
@@ -136,7 +136,7 @@ markdown_extensions:
       toc_depth: 3  # Prevents h4, h5 (i.e. methods) from showing up in the TOC.
 
 
-extra_javascript: 
+extra_javascript:
   # make MathJax work, see https://squidfunk.github.io/mkdocs-material/reference/mathjax/
   - _static/mathjax.js
   - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js

@@ -1,6 +1,6 @@
 # Controllers
 
-::: stochastix.controllers.Timer 
+::: stochastix.controllers.Timer
     options:
       members: false
       inherited_members: false

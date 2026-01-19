@@ -9,8 +9,8 @@ window.MathJax = {
     ignoreHtmlClass: ".*|",
     processHtmlClass: "arithmatex"
   }
-}; 
+};
 
-document$.subscribe(() => { 
+document$.subscribe(() => {
   MathJax.typesetPromise()
 })

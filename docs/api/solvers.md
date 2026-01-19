@@ -3,14 +3,14 @@
 ## Classic Solvers
 
 ---
-::: stochastix.DirectMethod 
-    options: 
+::: stochastix.DirectMethod
+    options:
       members: false
       inherited_members: false
 
 ---
 ::: stochastix.FirstReactionMethod
-    options: 
+    options:
       members: false
       inherited_members: false
 
@@ -22,19 +22,19 @@
 
 ---
 ::: stochastix.DifferentiableDirect
-    options: 
+    options:
       members: false
       inherited_members: false
 
 ---
 ::: stochastix.DifferentiableFirstReaction
-    options: 
+    options:
       members: false
       inherited_members: false
 
 ---
 ::: stochastix.DGA
-    options: 
+    options:
       members: false
       inherited_members: false
 
@@ -46,7 +46,7 @@
 
 ---
 ::: stochastix.TauLeaping
-    options: 
+    options:
       members: false
       inherited_members: false
 

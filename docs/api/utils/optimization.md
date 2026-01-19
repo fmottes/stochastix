@@ -22,4 +22,4 @@
 
 ::: stochastix.utils.optimization.dataloader
 
-::: stochastix.utils.optimization.discounted_returns 
+::: stochastix.utils.optimization.discounted_returns
