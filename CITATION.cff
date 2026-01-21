@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: If you use this software, please cite it as below.
+message: If you use this software, please cite the paper below.
 title: stochastix
 version: 0.1.0
 type: software
@@ -8,3 +8,17 @@ authors:
     given-names: Francesco
 repository-code: https://github.com/fmottes/stochastix
 license: Apache-2.0
+preferred-citation:
+  type: article
+  title: Gradient-based optimization of exact stochastic kinetic models
+  authors:
+    - family-names: Mottes
+      given-names: Francesco
+    - family-names: Zhu
+      given-names: Qian-Ze
+    - family-names: Brenner
+      given-names: Michael P.
+  year: 2026
+  month: 1
+  doi: 10.48550/arXiv.2601.14183
+  url: https://arxiv.org/abs/2601.14183

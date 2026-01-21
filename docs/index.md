@@ -98,7 +98,19 @@ The full API reference is available [here](api/index.md).
 
 ## Citation
 
-Coming soon...
+If you use this software, please cite the paper:
 
+> **Gradient-based optimization of exact stochastic kinetic models**
+> Francesco Mottes, Qian-Ze Zhu, Michael P. Brenner
+> [arXiv:2601.14183](https://arxiv.org/abs/2601.14183) (2026)
+
+```bibtex
+@article{mottes2026gradient,
+  title={Gradient-based optimization of exact stochastic kinetic models},
+  author={Mottes, Francesco and Zhu, Qian-Ze and Brenner, Michael P.},
+  journal={arXiv preprint arXiv:2601.14183},
+  year={2026}
+}
 ```
-```
+
+You can also use the ["Cite this repository"](https://github.com/fmottes/stochastix) button on GitHub to get the citation in various formats.

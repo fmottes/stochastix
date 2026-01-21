@@ -101,4 +101,10 @@ sim_results = stx.stochsimsolve(sim_key, network, x0, T=100.0)
 
 ## Citation
 
-See [`CITATION.cff`](CITATION.cff). For BibTeX format, click on the “Cite this repository” button in the top right corner of the repository page.
+If you use this software, please cite the paper:
+
+> **Gradient-based optimization of exact stochastic kinetic models**
+> Francesco Mottes, Qian-Ze Zhu, Michael P. Brenner
+> [arXiv:2601.14183](https://arxiv.org/abs/2601.14183) (2026)
+
+You can use the "Cite this repository" button in the top right corner of the repository page to get the citation in various formats.
