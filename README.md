@@ -3,6 +3,8 @@
 # stochastix
 *Differentiable, hardware accelerated stochastic kinetic models in JAX.*
 
+[Installation](#installation) • [Quick Example](#quick-example) • [Documentation](#diving-deeper) • [Citation](#citation)
+
 </div>
 
 
