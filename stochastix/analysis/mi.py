@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import typing
 
 import jax.numpy as jnp
@@ -68,6 +69,12 @@ def mutual_information(
     Returns:
         The mutual information between `x1` and `x2` in the specified base.
     """
+    base = float(base)
+    if not math.isfinite(base) or base <= 0.0 or base == 1.0:
+        raise ValueError(
+            f'base must be finite, positive, and not equal to 1, got {base}'
+        )
+
     # Select the appropriate KDE functions (happens at trace time, JIT-compatible)
     kde_1d_functions = {
         'triangular': kde_triangular,

@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+import pytest
 
 from stochastix.analysis import mutual_information
 from stochastix.analysis.kde_1d import kde_triangular
@@ -115,3 +116,14 @@ def test_mutual_information_coarse_grid_uses_cell_mass():
     mi_manual = jnp.sum(q_xy * log_ratio)
 
     assert jnp.isclose(mi_est, mi_manual, atol=1e-5)
+
+
+@pytest.mark.parametrize('base', [1.0, 0.0, -2.0, jnp.inf, jnp.nan])
+def test_mutual_information_rejects_invalid_base(base):
+    x = jnp.array([0.0, 1.0, 2.0, 3.0], dtype=jnp.float32)
+    y = jnp.array([0.0, 1.0, 2.0, 3.0], dtype=jnp.float32)
+
+    with pytest.raises(
+        ValueError, match='base must be finite, positive, and not equal to 1'
+    ):
+        mutual_information(x, y, base=base)
