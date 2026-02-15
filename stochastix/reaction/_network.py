@@ -87,7 +87,8 @@ class ReactionNetwork(eqx.Module):
             reactions: An iterable of `Reaction` objects.
             volume: The system volume. Affects concentration-dependent rates.
         """
-        self.reactions = tuple(reactions)
+        reactions = tuple(reactions)
+        self.reactions = reactions
         self.volume = volume
 
         # --- Upward Flow: Compile static information from reactions ---
@@ -95,9 +96,11 @@ class ReactionNetwork(eqx.Module):
         # 1. Discover all unique species from reactants, products, and kinetics requirements.
         all_species = set()
         for r in reactions:
-            all_species.update(r.required_species)
+            all_species.update(s for s, _ in r.reactants_and_coeffs)
+            all_species.update(s for s, _ in r.products_and_coeffs)
+            all_species.update(r.kinetics_species)
 
-        self.species = tuple(sorted(list(all_species)))
+        self.species = tuple(sorted(all_species))
         self._species_map = {s: i for i, s in enumerate(self.species)}
         self.n_species = len(self.species)
         self.n_reactions = len(reactions)
@@ -110,29 +113,41 @@ class ReactionNetwork(eqx.Module):
         prepared_reactions = []
         for r in reactions:
             prepared_kinetics = r.kinetics._bind_to_network(self._species_map)
-            # Reaction is an equinox Module, so we use functional updates
-            new_r = eqx.tree_at(
-                lambda reaction: reaction.kinetics, r, prepared_kinetics
-            )
-            prepared_reactions.append(new_r)
+            if prepared_kinetics is r.kinetics:
+                prepared_reactions.append(r)
+            else:
+                # Reaction is an equinox Module, so we use functional updates
+                new_r = eqx.tree_at(
+                    lambda reaction: reaction.kinetics, r, prepared_kinetics
+                )
+                prepared_reactions.append(new_r)
         self.reactions = tuple(prepared_reactions)
 
         # 2. Build global structural matrices directly in (species x reactions) convention.
-        reactant_matrix = jnp.zeros((self.n_species, self.n_reactions))
-        product_matrix = jnp.zeros((self.n_species, self.n_reactions))
+        reactant_matrix = [
+            [0.0 for _ in range(self.n_reactions)] for _ in range(self.n_species)
+        ]
+        product_matrix = [
+            [0.0 for _ in range(self.n_reactions)] for _ in range(self.n_species)
+        ]
 
         for i, r in enumerate(self.reactions):
             for species, coeff in r.reactants_and_coeffs:
                 species_idx = self._species_map[species]
-                reactant_matrix = reactant_matrix.at[species_idx, i].set(coeff)
+                reactant_matrix[species_idx][i] = float(coeff)
             for species, coeff in r.products_and_coeffs:
                 species_idx = self._species_map[species]
-                product_matrix = product_matrix.at[species_idx, i].set(coeff)
+                product_matrix[species_idx][i] = float(coeff)
 
-        self.reactant_matrix = reactant_matrix.tolist()
-        self.product_matrix = product_matrix.tolist()
-        # Calculate stoichiometry from the jnp arrays before converting to list
-        self.stoichiometry_matrix = (product_matrix - reactant_matrix).tolist()
+        self.reactant_matrix = reactant_matrix
+        self.product_matrix = product_matrix
+        self.stoichiometry_matrix = [
+            [
+                product_matrix[s_idx][r_idx] - reactant_matrix[s_idx][r_idx]
+                for r_idx in range(self.n_reactions)
+            ]
+            for s_idx in range(self.n_species)
+        ]
 
         # Create a lightweight dictionary of named substeps with indices
         self._named_reactions = {}
@@ -146,9 +161,6 @@ class ReactionNetwork(eqx.Module):
                     j += 1
                 name = f'{name}_{j}'
             self._named_reactions[name] = i
-
-        self.n_reactions = len(self.reactions)
-        self.n_species = len(self.species)
 
     # --- Stochastic probensities ---
 
