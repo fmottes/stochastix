@@ -87,7 +87,7 @@ def mutual_information(
     kde_2d_func = kde_2d_functions[kde_type]
 
     # p(x1)
-    _, p_x1 = kde_1d_func(
+    grid1, p_x1 = kde_1d_func(
         x1,
         n_grid_points=n_grid_points1,
         min_max_vals=min_max_vals1,
@@ -97,7 +97,7 @@ def mutual_information(
         dirichlet_kappa=dirichlet_kappa,
     )
     # p(x2)
-    _, p_x2 = kde_1d_func(
+    grid2, p_x2 = kde_1d_func(
         x2,
         n_grid_points=n_grid_points2,
         min_max_vals=min_max_vals2,
@@ -120,29 +120,47 @@ def mutual_information(
         dirichlet_kappa=dirichlet_kappa,
     )
 
-    # More numerically stable computation using direct log-ratio formula:
-    # I(X;Y) = sum_{x,y} p(x,y) * log(p(x,y) / (p(x) * p(y)))
-    # Computed in log-space to avoid underflow and cancellation errors
+    # Convert densities to per-cell probabilities (masses).
+    # This keeps MI correct for non-unit grid spacing.
+    if grid1.shape[0] > 1:
+        dx1 = grid1[1] - grid1[0]
+    else:
+        dx1 = jnp.asarray(1.0, dtype=grid1.dtype)
+    dx1 = jnp.maximum(dx1, jnp.asarray(1e-6, dtype=grid1.dtype))
 
-    tiny = jnp.finfo(p_x1_x2.dtype).tiny
+    if grid2.shape[0] > 1:
+        dx2 = grid2[1] - grid2[0]
+    else:
+        dx2 = jnp.asarray(1.0, dtype=grid2.dtype)
+    dx2 = jnp.maximum(dx2, jnp.asarray(1e-6, dtype=grid2.dtype))
+
+    q_x1 = p_x1 * dx1
+    q_x2 = p_x2 * dx2
+    q_x1_x2 = p_x1_x2 * (dx1 * dx2)
+
+    # More numerically stable computation using direct log-ratio formula:
+    # I(X;Y) = sum_{x,y} q(x,y) * log(q(x,y) / (q(x) * q(y)))
+    # Computed in log-space to avoid underflow and cancellation errors.
+
+    tiny = jnp.finfo(q_x1_x2.dtype).tiny
 
     # Compute log probabilities in log-space
-    log_p_x1_x2 = jnp.log2(jnp.maximum(p_x1_x2, tiny))
-    log_p_x1 = jnp.log2(jnp.maximum(p_x1, tiny))
-    log_p_x2 = jnp.log2(jnp.maximum(p_x2, tiny))
+    log_q_x1_x2 = jnp.log2(jnp.maximum(q_x1_x2, tiny))
+    log_q_x1 = jnp.log2(jnp.maximum(q_x1, tiny))
+    log_q_x2 = jnp.log2(jnp.maximum(q_x2, tiny))
 
-    # Create outer product for log(p(x) * p(y)) = log p(x) + log p(y)
-    log_p_x1_2d = log_p_x1[:, None]  # shape: (n_grid_points1, 1)
-    log_p_x2_2d = log_p_x2[None, :]  # shape: (1, n_grid_points2)
-    log_p_x1_x2_indep = (
-        log_p_x1_2d + log_p_x2_2d
+    # Create outer product for log(q(x) * q(y)) = log q(x) + log q(y)
+    log_q_x1_2d = log_q_x1[:, None]  # shape: (n_grid_points1, 1)
+    log_q_x2_2d = log_q_x2[None, :]  # shape: (1, n_grid_points2)
+    log_q_x1_x2_indep = (
+        log_q_x1_2d + log_q_x2_2d
     )  # shape: (n_grid_points1, n_grid_points2)
 
-    # I(X;Y) = sum p(x,y) * (log p(x,y) - log(p(x) * p(y)))
-    log_ratio = log_p_x1_x2 - log_p_x1_x2_indep
+    # I(X;Y) = sum q(x,y) * (log q(x,y) - log(q(x) * q(y)))
+    log_ratio = log_q_x1_x2 - log_q_x1_x2_indep
 
-    # Sum over all (x,y) pairs. Terms where p(x,y) = 0 contribute 0, so safe to sum all
-    mi = jnp.sum(p_x1_x2 * log_ratio)
+    # Sum over all (x,y) pairs. Terms where q(x,y) = 0 contribute 0, so safe to sum all
+    mi = jnp.sum(q_x1_x2 * log_ratio)
 
     # Convert to desired base if needed
     if base != 2.0:
