@@ -14,7 +14,9 @@ from .._state_utils import pytree_to_state, state_to_pytree
 from ..kinetics._massaction import (
     MassAction,
     mass_action_ode_rate,
+    mass_action_ode_rate_low_order2,
     mass_action_propensity,
+    mass_action_propensity_low_order2,
 )
 from ._reaction import Reaction
 
@@ -79,6 +81,7 @@ class ReactionNetwork(eqx.Module):
     _species_map: dict = eqx.field(static=True)
     _named_reactions: dict = eqx.field(static=True)
     _all_mass_action: bool = eqx.field(static=True)
+    _massaction_fast_low_order2: bool = eqx.field(static=True)
 
     def __init__(self, reactions: Iterable[Reaction], volume: float = 1.0):
         """Initializes the ReactionNetwork.
@@ -107,6 +110,20 @@ class ReactionNetwork(eqx.Module):
 
         self._all_mass_action = all(
             isinstance(r.kinetics, MassAction) for r in reactions
+        )
+        all_integer_reactant_coeffs = True
+        max_reactant_coeff = 0.0
+        for r in reactions:
+            for _, coeff in r.reactants_and_coeffs:
+                max_reactant_coeff = max(max_reactant_coeff, float(coeff))
+                rounded_coeff = round(float(coeff))
+                if abs(float(coeff) - rounded_coeff) > 1e-12:
+                    all_integer_reactant_coeffs = False
+
+        self._massaction_fast_low_order2 = (
+            self._all_mass_action
+            and all_integer_reactant_coeffs
+            and max_reactant_coeff <= 2.0
         )
 
         # "Prepare" reactions by equipping kinetics with species indices
@@ -199,9 +216,14 @@ class ReactionNetwork(eqx.Module):
                 rate_constants = jnp.array(
                     [r.kinetics.transform(r.kinetics.k) for r in self.reactions]
                 )
-                propensities = eqx.filter_vmap(
-                    mass_action_propensity, in_axes=(0, None, 1, None)
-                )(rate_constants, x, reactant_matrix, self.volume)
+                if self._massaction_fast_low_order2:
+                    propensities = eqx.filter_vmap(
+                        mass_action_propensity_low_order2, in_axes=(0, None, 1, None)
+                    )(rate_constants, x, reactant_matrix, self.volume)
+                else:
+                    propensities = eqx.filter_vmap(
+                        mass_action_propensity, in_axes=(0, None, 1, None)
+                    )(rate_constants, x, reactant_matrix, self.volume)
             else:
                 # Path for heterogeneous reactions.
                 for i, reaction in enumerate(self.reactions):
@@ -215,10 +237,16 @@ class ReactionNetwork(eqx.Module):
             if self._all_mass_action:
                 # Vectorized approach with an inner lax.cond to handle the mask.
                 # This is JIT-compatible and avoids a Python loop.
+                propensity_kernel = (
+                    mass_action_propensity_low_order2
+                    if self._massaction_fast_low_order2
+                    else mass_action_propensity
+                )
+
                 def _propensity_fn_masked(k, reactants, masked):
                     return jax.lax.cond(
                         masked,
-                        lambda: mass_action_propensity(k, x, reactants, self.volume),
+                        lambda: propensity_kernel(k, x, reactants, self.volume),
                         lambda: 0.0,
                     )
 
@@ -276,9 +304,14 @@ class ReactionNetwork(eqx.Module):
             rate_constants = jnp.array(
                 [r.kinetics.transform(r.kinetics.k) for r in self.reactions]
             )
-            rates = eqx.filter_vmap(mass_action_ode_rate, in_axes=(0, None, 1, None))(
-                rate_constants, x, reactant_matrix, self.volume
-            )
+            if self._massaction_fast_low_order2:
+                rates = eqx.filter_vmap(
+                    mass_action_ode_rate_low_order2, in_axes=(0, None, 1, None)
+                )(rate_constants, x, reactant_matrix, self.volume)
+            else:
+                rates = eqx.filter_vmap(
+                    mass_action_ode_rate, in_axes=(0, None, 1, None)
+                )(rate_constants, x, reactant_matrix, self.volume)
         else:
             # This loop is JAX-jittable for heterogeneous reactions.
             rates = jnp.zeros(len(self.reactions))

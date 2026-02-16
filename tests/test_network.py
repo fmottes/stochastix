@@ -1,6 +1,8 @@
+import jax
 import jax.numpy as jnp
 
 from stochastix.kinetics import MassAction
+from stochastix.kinetics._massaction import mass_action_ode_rate, mass_action_propensity
 from stochastix.reaction import Reaction, ReactionNetwork
 
 
@@ -174,3 +176,56 @@ def test_network_string_representations():
     assert '\\rightarrow' in latex_repr
     assert 'C' in latex_repr
     assert '\\emptyset' in latex_repr
+
+
+def test_network_mass_action_low_order2_fast_path_enabled_and_parity():
+    """Test low-order mass-action fast path flag and numerical parity."""
+    network = ReactionNetwork(
+        [
+            Reaction('0 -> A', MassAction(k=1.0)),
+            Reaction('A -> 0', MassAction(k=0.1)),
+            Reaction('2A -> B', MassAction(k=0.05)),
+            Reaction('A + B -> C', MassAction(k=0.2)),
+        ]
+    )
+    assert network._massaction_fast_low_order2
+
+    x = jnp.array([5.0, 3.0, 2.0])
+    reactant_matrix = jnp.asarray(network.reactant_matrix)
+    stoichiometry_matrix = jnp.asarray(network.stoichiometry_matrix)
+    rate_constants = jnp.array(
+        [r.kinetics.transform(r.kinetics.k) for r in network.reactions]
+    )
+
+    expected_propensities = jax.vmap(
+        mass_action_propensity, in_axes=(0, None, 1, None)
+    )(rate_constants, x, reactant_matrix, network.volume)
+    actual_propensities = network.propensity_fn(x, t=0.0)
+    assert jnp.allclose(
+        actual_propensities, expected_propensities, rtol=1e-5, atol=1e-8
+    )
+
+    mask = jnp.array([True, False, True, False])
+    expected_masked = jnp.where(mask, expected_propensities, 0.0)
+    actual_masked = network.propensity_fn(x, t=0.0, reaction_mask=mask)
+    assert jnp.allclose(actual_masked, expected_masked, rtol=1e-5, atol=1e-8)
+
+    tiny = jnp.finfo(jnp.result_type(float)).tiny
+    expected_rates = jax.vmap(mass_action_ode_rate, in_axes=(0, None, 1, None))(
+        rate_constants, x + tiny, reactant_matrix, network.volume
+    )
+    expected_dxdt = stoichiometry_matrix @ expected_rates
+    actual_dxdt = network.vector_field(t=0.0, x=x, args=None)
+    assert jnp.allclose(actual_dxdt, expected_dxdt, rtol=1e-5, atol=1e-8)
+
+
+def test_network_mass_action_low_order2_fast_path_disabled_for_higher_order():
+    """Test low-order fast path is disabled when any reactant coeff exceeds 2."""
+    network = ReactionNetwork([Reaction('3A -> B', MassAction(k=0.1))])
+    assert not network._massaction_fast_low_order2
+
+
+def test_network_mass_action_low_order2_fast_path_disabled_for_non_integer():
+    """Test low-order fast path is disabled when any reactant coeff is non-integer."""
+    network = ReactionNetwork([Reaction('1.5A -> B', MassAction(k=0.1))])
+    assert not network._massaction_fast_low_order2
