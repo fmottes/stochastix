@@ -459,7 +459,58 @@ def kde_wendland_c2(
     dirichlet_alpha: float | None = 0.1,
     dirichlet_kappa: float | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Kernel density estimation with a Wendland C2 kernel."""
+    """Kernel density estimation with a Wendland C2 kernel.
+
+    This computes a JAX-compatible KDE using a Wendland C2 kernel centered at
+    each sample. The kernel is ``k(r) = (1 - r)^4 * (4r + 1)`` for r in [0, 1],
+    zero elsewhere, where ``r = |d| / scale`` and ``scale = bw_multiplier *
+    grid_step``. The kernel is compactly supported. Each sample's kernel is
+    renormalized over the evaluation grid to avoid boundary mass loss on finite
+    support.
+
+    Note: Bandwidth selection
+        Bandwidth < 1.0 will give the true p.m.f. (with no smoothing and no boundary mass accumulation) but will not provide gradients. Bandwidth of about 1.5 is a good heuristic for differentiation.
+
+    Note: Dirichlet smoothing
+        When ``density=True``, applies add-α smoothing to the multinomial pmf
+        implied by the soft counts before converting to a pdf:
+        ``p_hat = (counts + α) / (N + α*K)``.
+        When ``density=False``, returns raw soft counts (no smoothing).
+
+    Note: JIT-compatibility
+        For JIT-compatibility, provide concrete binning parameters. If
+        `n_grid_points` or `min_max_vals` are ``None``, bin parameters are derived
+        from data outside of JIT.
+
+    Args:
+        x: 1D array of samples. If not 1D, it will be flattened.
+        n_grid_points: Number of grid points. If ``None``, inferred from the
+            integer span ``[floor(min(x)), ceil(max(x))]``.
+        min_max_vals: Tuple ``(min_val, max_val)`` defining the bin range. If
+            ``None``, determined from data.
+        density: If ``True``, returns a probability density function whose
+            Riemann sum over the grid integrates to 1 (via normalization by
+            ``sum * grid_step``). If ``False``, returns unnormalized
+            counts/weights per grid point.
+        weights: Optional nonnegative weights per sample (same length as `x`).
+            When provided, kernel contributions are multiplied by these weights.
+        bw_multiplier: Kernel half-width as a multiple of the bin width.
+        dirichlet_alpha: Per-bin pseudo-count for Dirichlet smoothing. Default is
+            ``0.1``. Note: ``dirichlet_kappa`` takes priority over this parameter if
+            provided.
+        dirichlet_kappa: Total pseudo-count for Dirichlet smoothing. If provided,
+            takes priority over ``dirichlet_alpha`` and ``alpha = kappa / K`` where K
+            is the number of grid points. If ``None``, uses ``dirichlet_alpha``
+            instead.
+
+    Returns:
+        A tuple ``(grid, values)`` where:
+
+            - ``grid``: 1D array of evaluation points (bin centers), shape
+              ``(n_grid_points,)``.
+            - ``values``: 1D array of KDE values at the grid points, shape
+              ``(n_grid_points,)``. If ``density=True``, these approximate a PDF.
+    """
     x = jnp.asarray(x).reshape(-1)
     w = None if weights is None else jnp.asarray(weights).reshape(-1)
     if w is not None and w.shape[0] != x.shape[0]:
