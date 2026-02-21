@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 
 from .._state_utils import pytree_to_state
-from .kde_1d import kde_exponential, kde_gaussian, kde_triangular
+from .kde_1d import kde_exponential, kde_gaussian, kde_triangular, kde_wendland_c2
 
 if typing.TYPE_CHECKING:
     from .._simulation_results import SimulationResults
@@ -22,7 +22,7 @@ def state_kde(
     density: bool = True,
     t: int | float = -1,
     *,
-    kde_type: str = 'triangular',
+    kde_type: str = 'wendland_c2',
     bw_multiplier: float = 1.0,
     dirichlet_alpha: float | None = 0.1,
     dirichlet_kappa: float | None = None,
@@ -49,7 +49,7 @@ def state_kde(
         t: The time point (float) or time index (int) at which to compute the
             KDE. If ``-1`` (default), uses the final time point.
         kde_type: Type of kernel to use. One of ``'triangular'``, ``'exponential'``,
-            or ``'gaussian'``. Default is ``'triangular'``.
+            ``'gaussian'``, or ``'wendland_c2'``. Default is ``'wendland_c2'``.
         bw_multiplier: Kernel bandwidth multiplier. Controls the width of the
             kernel relative to the grid step size. Default is ``1.0``.
         dirichlet_alpha: Per-bin pseudo-count for Dirichlet smoothing. Default is
@@ -87,6 +87,7 @@ def state_kde(
         'triangular': kde_triangular,
         'exponential': kde_exponential,
         'gaussian': kde_gaussian,
+        'wendland_c2': kde_wendland_c2,
     }
     if kde_type not in kde_functions:
         raise ValueError(

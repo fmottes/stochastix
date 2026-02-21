@@ -8,8 +8,13 @@ import typing
 import jax.numpy as jnp
 
 from .._state_utils import pytree_to_state
-from .kde_1d import kde_exponential, kde_gaussian, kde_triangular
-from .kde_2d import kde_exponential_2d, kde_gaussian_2d, kde_triangular_2d
+from .kde_1d import kde_exponential, kde_gaussian, kde_triangular, kde_wendland_c2
+from .kde_2d import (
+    kde_exponential_2d,
+    kde_gaussian_2d,
+    kde_triangular_2d,
+    kde_wendland_c2_2d,
+)
 
 if typing.TYPE_CHECKING:
     from .._simulation_results import SimulationResults
@@ -24,7 +29,7 @@ def mutual_information(
     min_max_vals2: tuple[float, float] | None = None,
     base: float = 2.0,
     *,
-    kde_type: str = 'triangular',
+    kde_type: str = 'wendland_c2',
     bw_multiplier: float = 1.0,
     dirichlet_alpha: float | None = 0.1,
     dirichlet_kappa: float | None = None,
@@ -56,7 +61,7 @@ def mutual_information(
         base: The logarithmic base to use for the entropy calculation. Default
             is ``2.0`` (bits).
         kde_type: Type of kernel to use. One of ``'triangular'``, ``'exponential'``,
-            or ``'gaussian'``. Default is ``'triangular'``.
+            ``'gaussian'``, or ``'wendland_c2'``. Default is ``'wendland_c2'``.
         bw_multiplier: Kernel bandwidth multiplier. Controls the width of the
             kernel relative to the grid step size. Default is ``1.0``.
         dirichlet_alpha: Per-bin pseudo-count for Dirichlet smoothing. Default
@@ -80,11 +85,13 @@ def mutual_information(
         'triangular': kde_triangular,
         'exponential': kde_exponential,
         'gaussian': kde_gaussian,
+        'wendland_c2': kde_wendland_c2,
     }
     kde_2d_functions = {
         'triangular': kde_triangular_2d,
         'exponential': kde_exponential_2d,
         'gaussian': kde_gaussian_2d,
+        'wendland_c2': kde_wendland_c2_2d,
     }
     if kde_type not in kde_1d_functions:
         raise ValueError(
