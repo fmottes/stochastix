@@ -446,3 +446,109 @@ def kde_gaussian(
 
     values = _probs(x, grid, w, grid_step, bw, jnp.asarray(alpha_eff, dtype=grid.dtype))
     return grid, values
+
+
+def kde_wendland_c2(
+    x: jnp.ndarray,
+    n_grid_points: int | None = None,
+    min_max_vals: tuple[float, float] | None = None,
+    density: bool = True,
+    weights: jnp.ndarray | None = None,
+    bw_multiplier: float = 1.0,
+    *,
+    dirichlet_alpha: float | None = 0.1,
+    dirichlet_kappa: float | None = None,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Kernel density estimation with a Wendland C2 kernel."""
+    x = jnp.asarray(x).reshape(-1)
+    w = None if weights is None else jnp.asarray(weights).reshape(-1)
+    if w is not None and w.shape[0] != x.shape[0]:
+        raise ValueError('weights must have the same length as x')
+
+    # Grid parameters
+    if min_max_vals is None:
+        min_val = jnp.floor(jnp.min(x))
+        max_val = jnp.ceil(jnp.max(x))
+    else:
+        min_val, max_val = min_max_vals
+
+    if n_grid_points is None:
+        n_grid_points = int(max_val - min_val) + 1 if max_val >= min_val else 1
+
+    grid = jnp.linspace(min_val, max_val, int(n_grid_points))
+
+    # Compute grid step outside jit using static n_grid_points
+    if int(n_grid_points) > 1:
+        grid_step = grid[1] - grid[0]
+    else:
+        grid_step = jnp.asarray(1.0, dtype=grid.dtype)
+    grid_step = jnp.maximum(grid_step, jnp.asarray(1e-6, dtype=grid.dtype))
+    bw = jnp.maximum(
+        jnp.asarray(bw_multiplier, dtype=grid.dtype),
+        jnp.asarray(1e-6, dtype=grid.dtype),
+    )
+
+    # Resolve effective Dirichlet alpha (per bin)
+    # If kappa is provided, alpha = kappa / K; else use dirichlet_alpha or 0
+    K = int(n_grid_points)
+    if dirichlet_kappa is not None:
+        alpha_eff = float(dirichlet_kappa) / float(K)
+    elif dirichlet_alpha is not None:
+        alpha_eff = float(dirichlet_alpha)
+    else:
+        alpha_eff = 0.0
+    alpha_eff = max(alpha_eff, 0.0)  # guard
+
+    @eqx.filter_jit
+    def _probs(x, grid, w, grid_step, bw, alpha_eff):
+        x_b = x[:, None]  # (N, 1)
+        grid_b = grid[None, :]  # (1, G)
+
+        scale = grid_step * bw
+        dist = jnp.abs(x_b - grid_b) / scale
+        # Wendland C2 kernel: (1 - r)^4 * (4r + 1), compactly supported on [0, 1]
+        r = jnp.clip(dist, jnp.asarray(0.0, grid.dtype), jnp.asarray(1.0, grid.dtype))
+        kernel_vals = jnp.where(
+            dist < jnp.asarray(1.0, grid.dtype),
+            (jnp.asarray(1.0, grid.dtype) - r) ** 4
+            * (jnp.asarray(4.0, grid.dtype) * r + jnp.asarray(1.0, grid.dtype)),
+            jnp.asarray(0.0, grid.dtype),
+        )
+
+        # Per-sample renormalization (prevents boundary mass loss)
+        row_sum = jnp.sum(kernel_vals, axis=1, keepdims=True)
+        row_sum = jnp.where(
+            row_sum > 0,
+            row_sum,
+            jnp.asarray(1.0, dtype=kernel_vals.dtype),
+        )
+        kernel_vals = kernel_vals / row_sum
+
+        # Soft counts (weighted if provided)
+        if w is None:
+            counts = jnp.sum(kernel_vals, axis=0)  # shape (G,)
+        else:
+            counts = jnp.sum(kernel_vals * w[:, None], axis=0)
+
+        if not density:
+            # Return raw soft counts; no Dirichlet smoothing here by design.
+            return counts
+
+        # Convert to a *pmf* with optional Dirichlet smoothing:
+        # p_hat = (counts + alpha) / (N + alpha*K)
+        N = jnp.sum(counts)
+        # Avoid 0/0 when N=0 and alpha=0: fall back to uniform
+        alpha = jnp.asarray(alpha_eff, dtype=counts.dtype)
+        Kf = jnp.asarray(counts.shape[-1], dtype=counts.dtype)
+
+        denom = N + alpha * Kf
+        denom = jnp.where(denom > 0, denom, jnp.asarray(1.0, dtype=counts.dtype))
+
+        pmf_smoothed = (counts + alpha) / denom
+
+        # Convert pmf to pdf on the grid
+        pdf = pmf_smoothed / grid_step
+        return pdf
+
+    values = _probs(x, grid, w, grid_step, bw, jnp.asarray(alpha_eff, dtype=grid.dtype))
+    return grid, values
