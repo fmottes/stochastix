@@ -193,7 +193,7 @@ def state_mutual_info(
     min_max_vals2: tuple[float, float] | None = None,
     base: float = 2.0,
     *,
-    kde_type: str = 'triangular',
+    kde_type: str = 'wendland_c2',
     bw_multiplier: float = 1.0,
     dirichlet_alpha: float | None = 0.1,
     dirichlet_kappa: float | None = None,
@@ -230,7 +230,7 @@ def state_mutual_info(
         base: The logarithmic base for the entropy calculation. Default is ``2.0``
             (bits).
         kde_type: Type of kernel to use. One of ``'triangular'``, ``'exponential'``,
-            or ``'gaussian'``. Default is ``'triangular'``.
+            ``'gaussian'``, or ``'wendland_c2'``. Default is ``'wendland_c2'``.
         bw_multiplier: Kernel bandwidth multiplier. Controls the width of the
             kernel relative to the grid step size. Default is ``1.0``.
         dirichlet_alpha: Per-bin pseudo-count for Dirichlet smoothing. Default is
