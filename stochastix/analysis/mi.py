@@ -8,13 +8,8 @@ import typing
 import jax.numpy as jnp
 
 from .._state_utils import pytree_to_state
-from .kde_1d import kde_exponential, kde_gaussian, kde_triangular, kde_wendland_c2
-from .kde_2d import (
-    kde_exponential_2d,
-    kde_gaussian_2d,
-    kde_triangular_2d,
-    kde_wendland_c2_2d,
-)
+from .kde_1d import kde
+from .kde_2d import kde_2d
 
 if typing.TYPE_CHECKING:
     from .._simulation_results import SimulationResults
@@ -80,48 +75,36 @@ def mutual_information(
             f'base must be finite, positive, and not equal to 1, got {base}'
         )
 
-    # Select the appropriate KDE functions (happens at trace time, JIT-compatible)
-    kde_1d_functions = {
-        'triangular': kde_triangular,
-        'exponential': kde_exponential,
-        'gaussian': kde_gaussian,
-        'wendland_c2': kde_wendland_c2,
-    }
-    kde_2d_functions = {
-        'triangular': kde_triangular_2d,
-        'exponential': kde_exponential_2d,
-        'gaussian': kde_gaussian_2d,
-        'wendland_c2': kde_wendland_c2_2d,
-    }
-    if kde_type not in kde_1d_functions:
+    valid_kde_types = ('triangular', 'exponential', 'gaussian', 'wendland_c2')
+    if kde_type not in valid_kde_types:
         raise ValueError(
-            f'kde_type must be one of {list(kde_1d_functions.keys())}, got {kde_type}'
+            f'kde_type must be one of {list(valid_kde_types)}, got {kde_type}'
         )
-    kde_1d_func = kde_1d_functions[kde_type]
-    kde_2d_func = kde_2d_functions[kde_type]
 
     # p(x1)
-    grid1, p_x1 = kde_1d_func(
+    grid1, p_x1 = kde(
         x1,
         n_grid_points=n_grid_points1,
         min_max_vals=min_max_vals1,
         density=True,
         bw_multiplier=bw_multiplier,
+        kernel=kde_type,
         dirichlet_alpha=dirichlet_alpha,
         dirichlet_kappa=dirichlet_kappa,
     )
     # p(x2)
-    grid2, p_x2 = kde_1d_func(
+    grid2, p_x2 = kde(
         x2,
         n_grid_points=n_grid_points2,
         min_max_vals=min_max_vals2,
         density=True,
         bw_multiplier=bw_multiplier,
+        kernel=kde_type,
         dirichlet_alpha=dirichlet_alpha,
         dirichlet_kappa=dirichlet_kappa,
     )
     # p(x1, x2)
-    _, _, p_x1_x2 = kde_2d_func(
+    _, _, p_x1_x2 = kde_2d(
         x1,
         x2,
         n_grid_points1=n_grid_points1,
@@ -130,6 +113,7 @@ def mutual_information(
         min_max_vals2=min_max_vals2,
         density=True,
         bw_multiplier=bw_multiplier,
+        kernel=kde_type,
         dirichlet_alpha=dirichlet_alpha,
         dirichlet_kappa=dirichlet_kappa,
     )
