@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 
 from .._state_utils import pytree_to_state
-from .kde_1d import kde_exponential, kde_gaussian, kde_triangular, kde_wendland_c2
+from .kde_1d import kde
 
 if typing.TYPE_CHECKING:
     from .._simulation_results import SimulationResults
@@ -82,18 +82,12 @@ def state_kde(
         results = results.interpolate(t)
         x = pytree_to_state(results.x, results.species)[:, species_indices]
 
-    # Select the appropriate KDE function
-    kde_functions = {
-        'triangular': kde_triangular,
-        'exponential': kde_exponential,
-        'gaussian': kde_gaussian,
-        'wendland_c2': kde_wendland_c2,
-    }
-    if kde_type not in kde_functions:
+    # Validate selected kernel before vmapping.
+    valid_kde_types = ('triangular', 'exponential', 'gaussian', 'wendland_c2')
+    if kde_type not in valid_kde_types:
         raise ValueError(
-            f'kde_type must be one of {list(kde_functions.keys())}, got {kde_type}'
+            f'kde_type must be one of {list(valid_kde_types)}, got {kde_type}'
         )
-    kde_func = kde_functions[kde_type]
 
     # Determine grid parameters based on all species data
     if min_max_vals is None:
@@ -119,7 +113,7 @@ def state_kde(
     }
 
     def _get_kde(data):
-        return kde_func(data, **grid_params)[1]
+        return kde(data, kernel=kde_type, **grid_params)[1]
 
     # Vectorize over the species
     values = jax.vmap(_get_kde, in_axes=1, out_axes=1)(x)
