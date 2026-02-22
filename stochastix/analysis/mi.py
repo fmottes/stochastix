@@ -8,7 +8,6 @@ import typing
 import jax.numpy as jnp
 
 from .._state_utils import pytree_to_state
-from .kde_1d import kde
 from .kde_2d import kde_2d
 
 if typing.TYPE_CHECKING:
@@ -81,60 +80,55 @@ def mutual_information(
             f'kde_type must be one of {list(valid_kde_types)}, got {kde_type}'
         )
 
-    # p(x1)
-    grid1, p_x1 = kde(
-        x1,
-        n_grid_points=n_grid_points1,
-        min_max_vals=min_max_vals1,
-        density=True,
-        bw_multiplier=bw_multiplier,
-        kernel=kde_type,
-        dirichlet_alpha=dirichlet_alpha,
-        dirichlet_kappa=dirichlet_kappa,
-    )
-    # p(x2)
-    grid2, p_x2 = kde(
-        x2,
-        n_grid_points=n_grid_points2,
-        min_max_vals=min_max_vals2,
-        density=True,
-        bw_multiplier=bw_multiplier,
-        kernel=kde_type,
-        dirichlet_alpha=dirichlet_alpha,
-        dirichlet_kappa=dirichlet_kappa,
-    )
-    # p(x1, x2)
-    _, _, p_x1_x2 = kde_2d(
+    # Estimate only joint soft-counts; derive marginals from the same counts to
+    # avoid separate 1D KDE calls while preserving prior smoothing behavior.
+    _, _, counts_x1_x2 = kde_2d(
         x1,
         x2,
         n_grid_points1=n_grid_points1,
         n_grid_points2=n_grid_points2,
         min_max_vals1=min_max_vals1,
         min_max_vals2=min_max_vals2,
-        density=True,
+        density=False,
         bw_multiplier=bw_multiplier,
         kernel=kde_type,
         dirichlet_alpha=dirichlet_alpha,
         dirichlet_kappa=dirichlet_kappa,
     )
+    dtype = counts_x1_x2.dtype
+    one = jnp.asarray(1.0, dtype=dtype)
+    n_eff = jnp.sum(counts_x1_x2)
 
-    # Convert densities to per-cell probabilities (masses).
-    # This keeps MI correct for non-unit grid spacing.
-    if grid1.shape[0] > 1:
-        dx1 = grid1[1] - grid1[0]
-    else:
-        dx1 = jnp.asarray(1.0, dtype=grid1.dtype)
-    dx1 = jnp.maximum(dx1, jnp.asarray(1e-6, dtype=grid1.dtype))
+    def _alpha_eff(n_bins: int) -> jnp.ndarray:
+        if dirichlet_kappa is not None:
+            alpha_eff = float(dirichlet_kappa) / float(n_bins)
+        elif dirichlet_alpha is not None:
+            alpha_eff = float(dirichlet_alpha)
+        else:
+            alpha_eff = 0.0
+        return jnp.asarray(max(alpha_eff, 0.0), dtype=dtype)
 
-    if grid2.shape[0] > 1:
-        dx2 = grid2[1] - grid2[0]
-    else:
-        dx2 = jnp.asarray(1.0, dtype=grid2.dtype)
-    dx2 = jnp.maximum(dx2, jnp.asarray(1e-6, dtype=grid2.dtype))
+    # Joint pmf with K1*K2-bin smoothing (matches previous kde_2d behavior).
+    n_bins_joint = counts_x1_x2.shape[0] * counts_x1_x2.shape[1]
+    alpha_joint = _alpha_eff(n_bins_joint)
+    denom_joint = n_eff + alpha_joint * jnp.asarray(n_bins_joint, dtype=dtype)
+    denom_joint = jnp.where(denom_joint > 0, denom_joint, one)
+    q_x1_x2 = (counts_x1_x2 + alpha_joint) / denom_joint
 
-    q_x1 = p_x1 * dx1
-    q_x2 = p_x2 * dx2
-    q_x1_x2 = p_x1_x2 * (dx1 * dx2)
+    # Marginal pmfs with 1D-bin smoothing (matches previous kde behavior).
+    counts_x1 = jnp.sum(counts_x1_x2, axis=1)
+    n_bins_x1 = counts_x1.shape[0]
+    alpha_x1 = _alpha_eff(n_bins_x1)
+    denom_x1 = n_eff + alpha_x1 * jnp.asarray(n_bins_x1, dtype=dtype)
+    denom_x1 = jnp.where(denom_x1 > 0, denom_x1, one)
+    q_x1 = (counts_x1 + alpha_x1) / denom_x1
+
+    counts_x2 = jnp.sum(counts_x1_x2, axis=0)
+    n_bins_x2 = counts_x2.shape[0]
+    alpha_x2 = _alpha_eff(n_bins_x2)
+    denom_x2 = n_eff + alpha_x2 * jnp.asarray(n_bins_x2, dtype=dtype)
+    denom_x2 = jnp.where(denom_x2 > 0, denom_x2, one)
+    q_x2 = (counts_x2 + alpha_x2) / denom_x2
 
     # More numerically stable computation using direct log-ratio formula:
     # I(X;Y) = sum_{x,y} q(x,y) * log(q(x,y) / (q(x) * q(y)))
@@ -164,8 +158,7 @@ def mutual_information(
     if base != 2.0:
         mi = mi / jnp.log2(base)
 
-    # Ensure non-negativity (should be naturally non-negative, but clamp for numerical safety)
-    return mi  # jnp.maximum(mi, 0.0)
+    return mi
 
 
 def state_mutual_info(
