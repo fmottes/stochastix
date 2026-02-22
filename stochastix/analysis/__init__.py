@@ -4,6 +4,7 @@ from .corr import autocorrelation, cross_correlation
 from .hist import state_kde
 from .kde_1d import kde, kde_exponential, kde_gaussian, kde_triangular, kde_wendland_c2
 from .kde_2d import (
+    kde_2d,
     kde_exponential_2d,
     kde_gaussian_2d,
     kde_triangular_2d,
@@ -15,6 +16,7 @@ __all__ = [
     'autocorrelation',
     'cross_correlation',
     'kde',
+    'kde_2d',
     'kde_exponential',
     'kde_gaussian',
     'kde_triangular',
