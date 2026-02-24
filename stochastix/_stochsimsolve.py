@@ -10,7 +10,7 @@ import jax.numpy as jnp
 
 from ._simulation_results import SimulationResults
 from ._state_utils import pytree_to_state, state_to_pytree
-from .solvers import DirectMethod, SimulationStep
+from .solvers import DifferentiableDirect, SimulationStep
 
 if typing.TYPE_CHECKING:
     from .controllers import AbstractController
@@ -143,7 +143,7 @@ def stochsimsolve(
     t0: float = 0.0,
     T: float = 3600.0,
     max_steps: int = int(1e5),
-    solver: AbstractStochasticSolver = DirectMethod(),
+    solver: AbstractStochasticSolver = DifferentiableDirect(),
     controller: AbstractController | None = None,
     save_trajectory: bool = True,
     save_propensities: bool = True,
@@ -347,7 +347,7 @@ def faststochsimsolve(
     t0: float = 0.0,
     T: float = 3600.0,
     max_steps: int = int(1e5),
-    solver: AbstractStochasticSolver = DirectMethod(),
+    solver: AbstractStochasticSolver = DifferentiableDirect(),
     controller: AbstractController | None = None,
     save_propensities: bool = True,
 ) -> SimulationResults:
