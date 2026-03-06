@@ -25,8 +25,8 @@ def mutual_information(
     *,
     kde_type: str = 'wendland_c2',
     bw_multiplier: float = 1.0,
-    dirichlet_alpha: float | None = 0.1,
-    dirichlet_kappa: float | None = None,
+    dirichlet_alpha: float | None = 0.0,
+    dirichlet_kappa: float | None = 0.1,
 ) -> jnp.ndarray:
     """Compute the mutual information between two arrays.
 
@@ -59,11 +59,11 @@ def mutual_information(
         bw_multiplier: Kernel bandwidth multiplier. Controls the width of the
             kernel relative to the grid step size. Default is ``1.0``.
         dirichlet_alpha: Per-bin pseudo-count for Dirichlet smoothing. Default
-            is ``0.1``. Note: ``dirichlet_kappa`` takes priority over this
+            is ``0.0``. Note: ``dirichlet_kappa`` takes priority over this
             parameter if provided.
         dirichlet_kappa: Total pseudo-count for Dirichlet smoothing. If
             provided, takes priority over ``dirichlet_alpha``. If ``None``, uses
-            ``dirichlet_alpha`` instead.
+            ``dirichlet_alpha`` instead. Default is ``0.1``.
 
     Returns:
         The mutual information between `x1` and `x2` in the specified base.
@@ -80,9 +80,8 @@ def mutual_information(
             f'kde_type must be one of {list(valid_kde_types)}, got {kde_type}'
         )
 
-    # Estimate only joint soft-counts; derive marginals from the same counts to
-    # avoid separate 1D KDE calls while preserving prior smoothing behavior.
-    _, _, counts_x1_x2 = kde_2d(
+    # Raw joint soft-counts only; force KDE smoothing off defensively.
+    _, _, counts_xy = kde_2d(
         x1,
         x2,
         n_grid_points1=n_grid_points1,
@@ -92,72 +91,43 @@ def mutual_information(
         density=False,
         bw_multiplier=bw_multiplier,
         kernel=kde_type,
-        dirichlet_alpha=dirichlet_alpha,
-        dirichlet_kappa=dirichlet_kappa,
+        dirichlet_alpha=0.0,
+        dirichlet_kappa=0.0,
     )
-    dtype = counts_x1_x2.dtype
-    one = jnp.asarray(1.0, dtype=dtype)
-    n_eff = jnp.sum(counts_x1_x2)
+    dtype = counts_xy.dtype
+    n_eff = jnp.sum(counts_xy)
 
     def _alpha_eff(n_bins: int) -> jnp.ndarray:
+        # Joint-only Dirichlet smoothing parameter (per-bin).
         if dirichlet_kappa is not None:
-            alpha_eff = float(dirichlet_kappa) / float(n_bins)
+            alpha = float(dirichlet_kappa) / float(n_bins)
         elif dirichlet_alpha is not None:
-            alpha_eff = float(dirichlet_alpha)
+            alpha = float(dirichlet_alpha)
         else:
-            alpha_eff = 0.0
-        return jnp.asarray(max(alpha_eff, 0.0), dtype=dtype)
+            alpha = 0.0
+        return jnp.asarray(max(alpha, 0.0), dtype=dtype)
 
-    # Joint pmf with K1*K2-bin smoothing (matches previous kde_2d behavior).
-    n_bins_joint = counts_x1_x2.shape[0] * counts_x1_x2.shape[1]
-    alpha_joint = _alpha_eff(n_bins_joint)
-    denom_joint = n_eff + alpha_joint * jnp.asarray(n_bins_joint, dtype=dtype)
-    denom_joint = jnp.where(denom_joint > 0, denom_joint, one)
-    q_x1_x2 = (counts_x1_x2 + alpha_joint) / denom_joint
+    # Joint pmf with K=K1*K2-bin smoothing (or none if alpha==0).
+    n_bins = counts_xy.size
+    alpha = _alpha_eff(n_bins)
+    denom = n_eff + alpha * jnp.asarray(n_bins, dtype=dtype)
+    q_xy = (counts_xy + alpha) / denom
 
-    # Marginal pmfs with 1D-bin smoothing (matches previous kde behavior).
-    counts_x1 = jnp.sum(counts_x1_x2, axis=1)
-    n_bins_x1 = counts_x1.shape[0]
-    alpha_x1 = _alpha_eff(n_bins_x1)
-    denom_x1 = n_eff + alpha_x1 * jnp.asarray(n_bins_x1, dtype=dtype)
-    denom_x1 = jnp.where(denom_x1 > 0, denom_x1, one)
-    q_x1 = (counts_x1 + alpha_x1) / denom_x1
+    # Marginals derived from the same joint pmf -> true KL-based MI.
+    q_x = jnp.sum(q_xy, axis=1)
+    q_y = jnp.sum(q_xy, axis=0)
 
-    counts_x2 = jnp.sum(counts_x1_x2, axis=0)
-    n_bins_x2 = counts_x2.shape[0]
-    alpha_x2 = _alpha_eff(n_bins_x2)
-    denom_x2 = n_eff + alpha_x2 * jnp.asarray(n_bins_x2, dtype=dtype)
-    denom_x2 = jnp.where(denom_x2 > 0, denom_x2, one)
-    q_x2 = (counts_x2 + alpha_x2) / denom_x2
+    # True mutual information:
+    # I = sum_{x,y} q(x,y) * log(q(x,y) / (q(x) q(y)))
+    # No masking/flooring: if smoothing is off and zeros occur, log(0) will break.
+    log_q_xy = jnp.log(q_xy)
+    log_q_x = jnp.log(q_x)
+    log_q_y = jnp.log(q_y)
+    log_indep = log_q_x[:, None] + log_q_y[None, :]
+    mi_nat = jnp.sum(q_xy * (log_q_xy - log_indep))
 
-    # More numerically stable computation using direct log-ratio formula:
-    # I(X;Y) = sum_{x,y} q(x,y) * log(q(x,y) / (q(x) * q(y)))
-    # Computed in log-space to avoid underflow and cancellation errors.
-
-    tiny = jnp.finfo(q_x1_x2.dtype).tiny
-
-    # Compute log probabilities in log-space
-    log_q_x1_x2 = jnp.log2(jnp.maximum(q_x1_x2, tiny))
-    log_q_x1 = jnp.log2(jnp.maximum(q_x1, tiny))
-    log_q_x2 = jnp.log2(jnp.maximum(q_x2, tiny))
-
-    # Create outer product for log(q(x) * q(y)) = log q(x) + log q(y)
-    log_q_x1_2d = log_q_x1[:, None]  # shape: (n_grid_points1, 1)
-    log_q_x2_2d = log_q_x2[None, :]  # shape: (1, n_grid_points2)
-    log_q_x1_x2_indep = (
-        log_q_x1_2d + log_q_x2_2d
-    )  # shape: (n_grid_points1, n_grid_points2)
-
-    # I(X;Y) = sum q(x,y) * (log q(x,y) - log(q(x) * q(y)))
-    log_ratio = log_q_x1_x2 - log_q_x1_x2_indep
-
-    # Sum over all (x,y) pairs. Terms where q(x,y) = 0 contribute 0, so safe to sum all
-    mi = jnp.sum(q_x1_x2 * log_ratio)
-
-    # Convert to desired base if needed
-    if base != 2.0:
-        mi = mi / jnp.log2(base)
-
+    # Convert from nats to requested base.
+    mi = mi_nat / jnp.log(jnp.asarray(base, dtype=dtype))
     return mi
 
 
@@ -172,8 +142,8 @@ def state_mutual_info(
     *,
     kde_type: str = 'wendland_c2',
     bw_multiplier: float = 1.0,
-    dirichlet_alpha: float | None = 0.1,
-    dirichlet_kappa: float | None = None,
+    dirichlet_alpha: float | None = 0.0,
+    dirichlet_kappa: float | None = 0.1,
 ) -> jnp.ndarray:
     """Compute the mutual information between two species at specific time points.
 
@@ -211,11 +181,11 @@ def state_mutual_info(
         bw_multiplier: Kernel bandwidth multiplier. Controls the width of the
             kernel relative to the grid step size. Default is ``1.0``.
         dirichlet_alpha: Per-bin pseudo-count for Dirichlet smoothing. Default is
-            ``0.1``. Note: ``dirichlet_kappa`` takes priority over this parameter
+            ``0.0``. Note: ``dirichlet_kappa`` takes priority over this parameter
             if provided.
         dirichlet_kappa: Total pseudo-count for Dirichlet smoothing. If provided,
             takes priority over ``dirichlet_alpha``. If ``None``, uses
-            ``dirichlet_alpha`` instead.
+            ``dirichlet_alpha`` instead. Default is ``0.1``.
 
     Returns:
         The mutual information between the distributions of the two specified
