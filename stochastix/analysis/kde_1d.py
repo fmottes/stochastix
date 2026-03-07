@@ -61,6 +61,50 @@ def _resolve_kernel_function(
     return kernel_functions[kernel]
 
 
+@eqx.filter_jit
+def _probs(
+    x_data: jnp.ndarray,
+    grid_data: jnp.ndarray,
+    w_data: jnp.ndarray | None,
+    grid_step_data: jnp.ndarray,
+    bw_data: jnp.ndarray,
+    alpha_eff_data: jnp.ndarray,
+    *,
+    density: bool,
+    kernel_fn: typing.Callable[[jnp.ndarray, typing.Any], jnp.ndarray],
+) -> jnp.ndarray:
+    x_b = x_data[:, None]
+    grid_b = grid_data[None, :]
+
+    scale = grid_step_data * bw_data
+    dist = jnp.abs(x_b - grid_b) / scale
+    kernel_vals = kernel_fn(dist, grid_data.dtype)
+
+    row_sum = jnp.sum(kernel_vals, axis=1, keepdims=True)
+    row_sum = jnp.where(
+        row_sum > 0,
+        row_sum,
+        jnp.asarray(1.0, dtype=kernel_vals.dtype),
+    )
+    kernel_vals = kernel_vals / row_sum
+
+    if w_data is None:
+        counts = jnp.sum(kernel_vals, axis=0)
+    else:
+        counts = jnp.sum(kernel_vals * w_data[:, None], axis=0)
+
+    if not density:
+        return counts
+
+    n_eff = jnp.sum(counts)
+    alpha = jnp.asarray(alpha_eff_data, dtype=counts.dtype)
+    n_bins = jnp.asarray(counts.shape[-1], dtype=counts.dtype)
+    denom = n_eff + alpha * n_bins
+    denom = jnp.where(denom > 0, denom, jnp.asarray(1.0, dtype=counts.dtype))
+    pmf_smoothed = (counts + alpha) / denom
+    return pmf_smoothed / grid_step_data
+
+
 def kde(
     x: jnp.ndarray,
     n_grid_points: int | None = None,
@@ -160,46 +204,6 @@ def kde(
     )
     kernel_fn = _resolve_kernel_function(kernel)
 
-    @eqx.filter_jit
-    def _probs(
-        x_data: jnp.ndarray,
-        grid_data: jnp.ndarray,
-        w_data: jnp.ndarray | None,
-        grid_step_data: jnp.ndarray,
-        bw_data: jnp.ndarray,
-        alpha_eff_data: jnp.ndarray,
-    ) -> jnp.ndarray:
-        x_b = x_data[:, None]
-        grid_b = grid_data[None, :]
-
-        scale = grid_step_data * bw_data
-        dist = jnp.abs(x_b - grid_b) / scale
-        kernel_vals = kernel_fn(dist, grid_data.dtype)
-
-        row_sum = jnp.sum(kernel_vals, axis=1, keepdims=True)
-        row_sum = jnp.where(
-            row_sum > 0,
-            row_sum,
-            jnp.asarray(1.0, dtype=kernel_vals.dtype),
-        )
-        kernel_vals = kernel_vals / row_sum
-
-        if w_data is None:
-            counts = jnp.sum(kernel_vals, axis=0)
-        else:
-            counts = jnp.sum(kernel_vals * w_data[:, None], axis=0)
-
-        if not density:
-            return counts
-
-        n_eff = jnp.sum(counts)
-        alpha = jnp.asarray(alpha_eff_data, dtype=counts.dtype)
-        n_bins = jnp.asarray(counts.shape[-1], dtype=counts.dtype)
-        denom = n_eff + alpha * n_bins
-        denom = jnp.where(denom > 0, denom, jnp.asarray(1.0, dtype=counts.dtype))
-        pmf_smoothed = (counts + alpha) / denom
-        return pmf_smoothed / grid_step_data
-
     values = _probs(
         x_data=x,
         grid_data=grid,
@@ -207,6 +211,8 @@ def kde(
         grid_step_data=grid_step,
         bw_data=bw,
         alpha_eff_data=jnp.asarray(alpha_eff, dtype=grid.dtype),
+        density=density,
+        kernel_fn=kernel_fn,
     )
     return grid, values
 
