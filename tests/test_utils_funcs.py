@@ -1,17 +1,7 @@
 import jax.numpy as jnp
 import numpy as np
 
-from stochastix.utils import algebraic_sigmoid, entropy, rate_constant_conc_to_count
-from stochastix.utils._utils import entr_safe
-
-
-def test_entr_safe_basic_zero_handling():
-    p = jnp.array([0.0, 0.5, 0.5, 1.0])
-    vals = entr_safe(p)
-    # Expect elementwise: [0, 0.5, 0.5, 0] and sum = 1.0
-    assert np.isclose(float(jnp.sum(vals)), 1.0)
-    assert np.isclose(float(vals[0]), 0.0)
-    assert np.isclose(float(vals[-1]), 0.0)
+from stochastix.utils import algebraic_sigmoid, rate_constant_conc_to_count
 
 
 def test_algebraic_sigmoid_properties():
@@ -28,20 +18,6 @@ def test_algebraic_sigmoid_properties():
     x1 = 1.0
     expected = 0.5 + (x1 / (2.0 * np.sqrt(1.0 + x1**2)))
     assert np.isclose(float(algebraic_sigmoid(jnp.array(x1))), expected)
-
-
-def test_entropy_bits_and_nats():
-    # Uniform over 4 outcomes → 2 bits
-    p = jnp.array([0.25, 0.25, 0.25, 0.25])
-    assert np.isclose(float(entropy(p)), 2.0)
-
-    # Deterministic → 0 bits
-    p_det = jnp.array([1.0, 0.0, 0.0, 0.0])
-    assert np.isclose(float(entropy(p_det)), 0.0)
-
-    # Nats: H([0.5, 0.5]) = ln 2
-    p2 = jnp.array([0.5, 0.5])
-    assert np.isclose(float(entropy(p2, base=np.e)), np.log(2.0))
 
 
 def test_rate_constant_conc_to_count_molar_units():

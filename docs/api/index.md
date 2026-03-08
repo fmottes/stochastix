@@ -32,7 +32,7 @@ This is the API reference for `stochastix`. For usage examples and guides see [H
 
 **Analysis**
 
-*   [`stochastix.analysis`][analysis] : Analysis utilities (e.g. correlation functions, KDE, and mutual information).
+*   [`stochastix.analysis`][analysis] : Analysis utilities (e.g. correlation functions, KDE, entropy, and mutual information).
 
 ## Utilities
 

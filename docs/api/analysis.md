@@ -1,6 +1,6 @@
 # Analysis
 
-The analysis module provides functions for analyzing simulation results, including correlation analysis, kernel density estimation (KDE), and mutual information computation.
+The analysis module provides functions for analyzing simulation results, including correlation analysis, kernel density estimation (KDE), entropy estimation, and mutual information computation.
 
 ## Correlation Functions
 
@@ -50,6 +50,14 @@ The analysis module provides functions for analyzing simulation results, includi
 
 ---
 ::: stochastix.analysis.state_kde
+
+## Entropy
+
+---
+::: stochastix.analysis.entropy
+
+---
+::: stochastix.analysis.state_entropy
 
 ## Mutual Information
 
