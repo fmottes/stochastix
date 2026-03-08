@@ -8,6 +8,7 @@ import typing
 import jax.numpy as jnp
 
 from .._state_utils import pytree_to_state
+from ._utils import normalize_time_scalar
 from .kde_2d import kde_2d
 
 if typing.TYPE_CHECKING:
@@ -133,7 +134,7 @@ def mutual_information(
 
 def state_mutual_info(
     results: SimulationResults,
-    species_at_t: typing.Iterable[tuple[str, int | float]],
+    species_at_t: typing.Iterable[tuple[str, typing.Any]],
     n_grid_points1: int | None = None,
     n_grid_points2: int | None = None,
     min_max_vals1: tuple[float, float] | None = None,
@@ -164,8 +165,8 @@ def state_mutual_info(
             This should contain a batch of simulation trajectories (e.g., from
             vmapping over `stochsimsolve`).
         species_at_t: An iterable containing two tuples, where each tuple consists
-            of a species name and a time point, e.g., `[('S1', t1), ('S2', t2)]`.
-            The time point can be an integer index or a float time value.
+            of a species name and a scalar physical time point, e.g.,
+            `[('S1', t1), ('S2', t2)]`.
         n_grid_points1: Number of grid points for the first species. If ``None``,
             determined automatically (not JIT-compatible).
         n_grid_points2: Number of grid points for the second species. If ``None``,
@@ -203,19 +204,13 @@ def state_mutual_info(
     s1_idx = results.species.index(s1_name)
     s2_idx = results.species.index(s2_name)
 
-    # Extract data for the first species at time t1
-    if isinstance(t1, int):
-        x1 = pytree_to_state(results.x, results.species)[:, t1, s1_idx]
-    else:
-        x1 = pytree_to_state(results.interpolate(t1).x, results.species)[:, s1_idx]
+    t1 = normalize_time_scalar(t1, arg_name='species_at_t[0][1]')
+    t2 = normalize_time_scalar(t2, arg_name='species_at_t[1][1]')
 
-    # Extract data for the second species at time t2
-    if isinstance(t2, int):
-        x2 = pytree_to_state(results.x, results.species)[:, t2, s2_idx]
-    else:
-        # Re-interpolate even if t1==t2 for simplicity and to handle
-        # the case where results.interpolate is not memoized.
-        x2 = pytree_to_state(results.interpolate(t2).x, results.species)[:, s2_idx]
+    x1 = pytree_to_state(results.interpolate(t1).x, results.species)[:, s1_idx]
+    # Re-interpolate even if t1==t2 for simplicity and to handle
+    # the case where results.interpolate is not memoized.
+    x2 = pytree_to_state(results.interpolate(t2).x, results.species)[:, s2_idx]
 
     return mutual_information(
         x1,

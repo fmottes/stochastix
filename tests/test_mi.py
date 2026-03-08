@@ -1,7 +1,10 @@
+import equinox as eqx
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
-from stochastix.analysis import mutual_information
+from stochastix import SimulationResults
+from stochastix.analysis import mutual_information, state_mutual_info
 from stochastix.analysis.kde_2d import kde_triangular_2d
 
 
@@ -82,3 +85,100 @@ def test_mutual_information_rejects_invalid_base(base):
         ValueError, match='base must be finite, positive, and not equal to 1'
     ):
         mutual_information(x, y, base=base)
+
+
+def _make_batched_results_for_time_tests() -> SimulationResults:
+    x = jnp.array(
+        [
+            [[0.0], [1.0], [2.0], [3.0]],
+            [[10.0], [11.0], [12.0], [13.0]],
+        ]
+    )
+    # Keep times batched to match interpolate's current batched convention.
+    t = jnp.array([[0.0, 5.0, 10.0, 20.0], [0.0, 5.0, 10.0, 20.0]])
+    return SimulationResults(
+        x=x,
+        t=t,
+        propensities=None,
+        reactions=None,
+        time_overflow=None,
+        species=('A',),
+    )
+
+
+@pytest.mark.parametrize('t_scalar', [2, np.int32(2), jnp.int32(2)])
+def test_state_mutual_info_integral_timestamps_warn_and_match_float_time(t_scalar):
+    results = _make_batched_results_for_time_tests()
+    kwargs = dict(
+        n_grid_points1=4,
+        n_grid_points2=4,
+        min_max_vals1=(0.0, 13.0),
+        min_max_vals2=(0.0, 13.0),
+        dirichlet_alpha=0.1,
+        dirichlet_kappa=None,
+    )
+    with pytest.warns(FutureWarning):
+        mi_int = state_mutual_info(
+            results, [('A', t_scalar), ('A', t_scalar)], **kwargs
+        )
+    mi_float = state_mutual_info(results, [('A', 2.0), ('A', 2.0)], **kwargs)
+    assert jnp.isclose(mi_int, mi_float)
+
+
+def test_state_mutual_info_uses_time_not_index_for_integral_timestamps():
+    results = _make_batched_results_for_time_tests()
+    kwargs = dict(
+        n_grid_points1=4,
+        n_grid_points2=4,
+        min_max_vals1=(0.0, 13.0),
+        min_max_vals2=(0.0, 13.0),
+        dirichlet_alpha=0.1,
+        dirichlet_kappa=None,
+    )
+    mi_index_like = state_mutual_info(results, [('A', 2.0), ('A', 2.0)], **kwargs)
+    mi_real_time = state_mutual_info(results, [('A', 10.0), ('A', 10.0)], **kwargs)
+    assert not jnp.isclose(mi_index_like, mi_real_time)
+    with pytest.warns(FutureWarning):
+        mi_integral = state_mutual_info(
+            results, [('A', np.int32(2)), ('A', np.int32(2))], **kwargs
+        )
+    assert jnp.isclose(mi_integral, mi_index_like)
+
+
+@pytest.mark.parametrize('bad_t', [jnp.array([1.0]), [1.0], (1.0,)])
+def test_state_mutual_info_rejects_non_scalar_timestamps(bad_t):
+    results = _make_batched_results_for_time_tests()
+    with pytest.raises(ValueError, match='scalar numeric time value'):
+        state_mutual_info(results, [('A', bad_t), ('A', 2.0)])
+
+
+def test_state_mutual_info_filter_jit_accepts_jax_scalar_times():
+    results = _make_batched_results_for_time_tests()
+
+    @eqx.filter_jit
+    def _mi(t1, t2):
+        return state_mutual_info(
+            results,
+            [('A', t1), ('A', t2)],
+            n_grid_points1=4,
+            n_grid_points2=4,
+            min_max_vals1=(0.0, 13.0),
+            min_max_vals2=(0.0, 13.0),
+            dirichlet_alpha=0.1,
+            dirichlet_kappa=None,
+        )
+
+    t1 = jnp.asarray(2.0, dtype=jnp.float32)
+    t2 = jnp.asarray(10.0, dtype=jnp.float32)
+    eager = state_mutual_info(
+        results,
+        [('A', t1), ('A', t2)],
+        n_grid_points1=4,
+        n_grid_points2=4,
+        min_max_vals1=(0.0, 13.0),
+        min_max_vals2=(0.0, 13.0),
+        dirichlet_alpha=0.1,
+        dirichlet_kappa=None,
+    )
+    jitted = _mi(t1, t2)
+    assert jnp.isclose(eager, jitted)
