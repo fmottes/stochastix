@@ -107,14 +107,10 @@ def _probs(
     )
     kernel_vals2 = kernel_vals2 / row_sum2
 
-    kernel_vals1_b = jnp.expand_dims(kernel_vals1, 2)
-    kernel_vals2_b = jnp.expand_dims(kernel_vals2, 1)
-    joint_kernel = kernel_vals1_b * kernel_vals2_b
-
     if w_data is None:
-        counts = jnp.sum(joint_kernel, axis=0)
+        counts = kernel_vals1.T @ kernel_vals2
     else:
-        counts = jnp.sum(joint_kernel * w_data[:, None, None], axis=0)
+        counts = (kernel_vals1 * w_data[:, None]).T @ kernel_vals2
 
     if not density:
         return counts
