@@ -102,6 +102,34 @@ def test_mutual_information_coarse_grid_uses_cell_mass():
     assert jnp.isclose(mi_est, mi_manual, atol=1e-5)
 
 
+def test_mutual_information_default_smoothing_matches_alpha_path():
+    x, y = _make_integer_series()
+
+    mi_default = mutual_information(
+        x,
+        y,
+        n_grid_points1=11,
+        n_grid_points2=11,
+        min_max_vals1=(0.0, 10.0),
+        min_max_vals2=(0.0, 10.0),
+        kde_type='triangular',
+        bw_multiplier=1.0,
+    )
+    mi_alpha = mutual_information(
+        x,
+        y,
+        n_grid_points1=11,
+        n_grid_points2=11,
+        min_max_vals1=(0.0, 10.0),
+        min_max_vals2=(0.0, 10.0),
+        kde_type='triangular',
+        bw_multiplier=1.0,
+        dirichlet_alpha=0.1,
+        dirichlet_kappa=None,
+    )
+    assert jnp.isclose(mi_default, mi_alpha, atol=1e-8)
+
+
 @pytest.mark.parametrize('base', [1.0, 0.0, -2.0, jnp.inf, jnp.nan])
 def test_mutual_information_rejects_invalid_base(base):
     x = jnp.array([0.0, 1.0, 2.0, 3.0], dtype=jnp.float32)

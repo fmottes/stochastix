@@ -26,8 +26,8 @@ def mutual_information(
     *,
     kde_type: str = 'wendland_c2',
     bw_multiplier: float = 1.0,
-    dirichlet_alpha: float | None = 0.0,
-    dirichlet_kappa: float | None = 0.1,
+    dirichlet_alpha: float | None = 0.1,
+    dirichlet_kappa: float | None = None,
 ) -> jnp.ndarray:
     """Compute the mutual information between two arrays.
 
@@ -67,11 +67,11 @@ def mutual_information(
         bw_multiplier: Kernel bandwidth multiplier. Controls the width of the
             kernel relative to the grid step size. Default is ``1.0``.
         dirichlet_alpha: Per-bin pseudo-count for Dirichlet smoothing. Default
-            is ``0.0``. Note: ``dirichlet_kappa`` takes priority over this
+            is ``0.1``. Note: ``dirichlet_kappa`` takes priority over this
             parameter if provided.
         dirichlet_kappa: Total pseudo-count for Dirichlet smoothing. If
             provided, takes priority over ``dirichlet_alpha``. If ``None``, uses
-            ``dirichlet_alpha`` instead. Default is ``0.1``.
+            ``dirichlet_alpha`` instead. Default is ``None``.
 
     Returns:
         The mutual information between `x1` and `x2` in the specified base.
@@ -153,8 +153,8 @@ def state_mutual_info(
     *,
     kde_type: str = 'wendland_c2',
     bw_multiplier: float = 1.0,
-    dirichlet_alpha: float | None = 0.0,
-    dirichlet_kappa: float | None = 0.1,
+    dirichlet_alpha: float | None = 0.1,
+    dirichlet_kappa: float | None = None,
 ) -> jnp.ndarray:
     """Compute the mutual information between two species at specific time points.
 
@@ -199,11 +199,11 @@ def state_mutual_info(
         bw_multiplier: Kernel bandwidth multiplier. Controls the width of the
             kernel relative to the grid step size. Default is ``1.0``.
         dirichlet_alpha: Per-bin pseudo-count for Dirichlet smoothing. Default is
-            ``0.0``. Note: ``dirichlet_kappa`` takes priority over this parameter
+            ``0.1``. Note: ``dirichlet_kappa`` takes priority over this parameter
             if provided.
         dirichlet_kappa: Total pseudo-count for Dirichlet smoothing. If provided,
             takes priority over ``dirichlet_alpha``. If ``None``, uses
-            ``dirichlet_alpha`` instead. Default is ``0.1``.
+            ``dirichlet_alpha`` instead. Default is ``None``.
 
     Returns:
         The mutual information between the distributions of the two specified
