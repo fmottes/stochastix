@@ -16,7 +16,7 @@ def _make_integer_series(n: int = 4000) -> tuple[jnp.ndarray, jnp.ndarray]:
     return x, y
 
 
-def test_mutual_information_without_smoothing_returns_nan():
+def test_mutual_information_without_smoothing_is_finite_and_matches_manual():
     x, y = _make_integer_series()
 
     mi_est = mutual_information(
@@ -31,7 +31,33 @@ def test_mutual_information_without_smoothing_returns_nan():
         dirichlet_alpha=None,
         dirichlet_kappa=None,
     )
-    assert jnp.isnan(mi_est)
+    _, _, counts_xy = kde_triangular_2d(
+        x,
+        y,
+        n_grid_points1=11,
+        n_grid_points2=11,
+        min_max_vals1=(0.0, 10.0),
+        min_max_vals2=(0.0, 10.0),
+        density=False,
+        bw_multiplier=1.0,
+        dirichlet_alpha=0.0,
+        dirichlet_kappa=0.0,
+    )
+    n_eff = jnp.sum(counts_xy)
+    q_xy = counts_xy / n_eff
+    q_x = jnp.sum(q_xy, axis=1)
+    q_y = jnp.sum(q_xy, axis=0)
+    support = q_xy > 0
+    mi_manual = jnp.sum(
+        jnp.where(
+            support,
+            q_xy * (jnp.log(q_xy) - (jnp.log(q_x)[:, None] + jnp.log(q_y)[None, :])),
+            0.0,
+        )
+    ) / jnp.log(2.0)
+
+    assert jnp.isfinite(mi_est)
+    assert jnp.isclose(mi_est, mi_manual, atol=1e-5)
 
 
 def test_mutual_information_coarse_grid_uses_cell_mass():

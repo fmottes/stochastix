@@ -41,6 +41,13 @@ def mutual_information(
         If left as ``None``, grid parameters are determined from the data (not
         JIT-able).
 
+    Note: Taking MI gradients
+        For gradient-based optimization, using Dirichlet smoothing
+        (``dirichlet_alpha > 0`` or ``dirichlet_kappa > 0``) is generally
+        preferred and is the safest choice for stable autodiff. With no
+        smoothing (both set to ``0``), MI can remain finite, but gradients are
+        piecewise and may be numerically fragile near zero-mass bins.
+
     Args:
         x1: 1D array of the first input data.
         x2: 1D array of the second input data. Must have the same length as
@@ -119,13 +126,16 @@ def mutual_information(
     q_y = jnp.sum(q_xy, axis=0)
 
     # True mutual information:
-    # I = sum_{x,y} q(x,y) * log(q(x,y) / (q(x) q(y)))
-    # No masking/flooring: if smoothing is off and zeros occur, log(0) will break.
+    # I = sum_{x,y} q(x,y) * log(q(x,y) / (q(x) q(y))).
+    # Use support masking so zero-mass bins contribute exactly 0 in the limit.
     log_q_xy = jnp.log(q_xy)
     log_q_x = jnp.log(q_x)
     log_q_y = jnp.log(q_y)
     log_indep = log_q_x[:, None] + log_q_y[None, :]
-    mi_nat = jnp.sum(q_xy * (log_q_xy - log_indep))
+
+    support = q_xy > 0
+
+    mi_nat = jnp.sum(jnp.where(support, q_xy * (log_q_xy - log_indep), 0.0))
 
     # Convert from nats to requested base.
     mi = mi_nat / jnp.log(jnp.asarray(base, dtype=dtype))
@@ -159,6 +169,13 @@ def state_mutual_info(
         (`n_grid_points1`, `n_grid_points2`, `min_max_vals1`, `min_max_vals2`).
         If left as ``None``, grid parameters are determined from the data (not
         JIT-able).
+
+    Note: Taking MI gradients
+        For gradient-based optimization, using Dirichlet smoothing
+        (``dirichlet_alpha > 0`` or ``dirichlet_kappa > 0``) is generally
+        preferred and is the safest choice for stable autodiff. With no
+        smoothing (both set to ``0``), MI can remain finite, but gradients are
+        piecewise and may be numerically fragile near zero-mass bins.
 
     Args:
         results: The `SimulationResults` from a `stochsimsolve` simulation.
