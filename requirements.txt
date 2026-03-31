@@ -6,13 +6,13 @@ cycler==0.12.1
     # via matplotlib
 diffrax==0.7.0
     # via stochastix (pyproject.toml)
-equinox==0.13.2
+equinox==0.13.6
     # via
     #   stochastix (pyproject.toml)
     #   diffrax
     #   lineax
     #   optimistix
-fonttools==4.61.1
+fonttools==4.62.1
     # via matplotlib
 jax==0.6.2
     # via
@@ -23,15 +23,15 @@ jax==0.6.2
     #   optimistix
 jaxlib==0.6.2
     # via jax
-jaxtyping==0.3.5
+jaxtyping==0.3.7
     # via
     #   diffrax
     #   equinox
     #   lineax
     #   optimistix
-kiwisolver==1.4.9
+kiwisolver==1.5.0
     # via matplotlib
-lineax==0.0.8
+lineax==0.1.0
     # via
     #   diffrax
     #   optimistix
@@ -53,11 +53,11 @@ opt-einsum==3.4.0
     # via jax
 optimistix==0.0.11
     # via diffrax
-packaging==25.0
+packaging==26.0
     # via matplotlib
-pillow==12.1.0
+pillow==12.1.1
     # via matplotlib
-pyparsing==3.3.1
+pyparsing==3.3.2
     # via matplotlib
 python-dateutil==2.9.0.post0
     # via matplotlib
