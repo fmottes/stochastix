@@ -8,6 +8,7 @@ import typing
 import jax.numpy as jnp
 
 from .._state_utils import pytree_to_state
+from ._utils import normalize_time_scalar
 from .kde_2d import kde_2d
 
 if typing.TYPE_CHECKING:
@@ -40,6 +41,13 @@ def mutual_information(
         If left as ``None``, grid parameters are determined from the data (not
         JIT-able).
 
+    Note: Taking MI gradients
+        For gradient-based optimization, using Dirichlet smoothing
+        (``dirichlet_alpha > 0`` or ``dirichlet_kappa > 0``) is generally
+        preferred and is the safest choice for stable autodiff. With no
+        smoothing (both set to ``0``), MI can remain finite, but gradients are
+        piecewise and may be numerically fragile near zero-mass bins.
+
     Args:
         x1: 1D array of the first input data.
         x2: 1D array of the second input data. Must have the same length as
@@ -63,7 +71,7 @@ def mutual_information(
             parameter if provided.
         dirichlet_kappa: Total pseudo-count for Dirichlet smoothing. If
             provided, takes priority over ``dirichlet_alpha``. If ``None``, uses
-            ``dirichlet_alpha`` instead.
+            ``dirichlet_alpha`` instead. Default is ``None``.
 
     Returns:
         The mutual information between `x1` and `x2` in the specified base.
@@ -80,9 +88,8 @@ def mutual_information(
             f'kde_type must be one of {list(valid_kde_types)}, got {kde_type}'
         )
 
-    # Estimate only joint soft-counts; derive marginals from the same counts to
-    # avoid separate 1D KDE calls while preserving prior smoothing behavior.
-    _, _, counts_x1_x2 = kde_2d(
+    # Raw joint soft-counts only; force KDE smoothing off defensively.
+    _, _, counts_xy = kde_2d(
         x1,
         x2,
         n_grid_points1=n_grid_points1,
@@ -92,78 +99,52 @@ def mutual_information(
         density=False,
         bw_multiplier=bw_multiplier,
         kernel=kde_type,
-        dirichlet_alpha=dirichlet_alpha,
-        dirichlet_kappa=dirichlet_kappa,
+        dirichlet_alpha=0.0,
+        dirichlet_kappa=0.0,
     )
-    dtype = counts_x1_x2.dtype
-    one = jnp.asarray(1.0, dtype=dtype)
-    n_eff = jnp.sum(counts_x1_x2)
+    dtype = counts_xy.dtype
+    n_eff = jnp.sum(counts_xy)
 
     def _alpha_eff(n_bins: int) -> jnp.ndarray:
+        # Joint-only Dirichlet smoothing parameter (per-bin).
         if dirichlet_kappa is not None:
-            alpha_eff = float(dirichlet_kappa) / float(n_bins)
+            alpha = float(dirichlet_kappa) / float(n_bins)
         elif dirichlet_alpha is not None:
-            alpha_eff = float(dirichlet_alpha)
+            alpha = float(dirichlet_alpha)
         else:
-            alpha_eff = 0.0
-        return jnp.asarray(max(alpha_eff, 0.0), dtype=dtype)
+            alpha = 0.0
+        return jnp.asarray(max(alpha, 0.0), dtype=dtype)
 
-    # Joint pmf with K1*K2-bin smoothing (matches previous kde_2d behavior).
-    n_bins_joint = counts_x1_x2.shape[0] * counts_x1_x2.shape[1]
-    alpha_joint = _alpha_eff(n_bins_joint)
-    denom_joint = n_eff + alpha_joint * jnp.asarray(n_bins_joint, dtype=dtype)
-    denom_joint = jnp.where(denom_joint > 0, denom_joint, one)
-    q_x1_x2 = (counts_x1_x2 + alpha_joint) / denom_joint
+    # Joint pmf with K=K1*K2-bin smoothing (or none if alpha==0).
+    n_bins = counts_xy.size
+    alpha = _alpha_eff(n_bins)
+    denom = n_eff + alpha * jnp.asarray(n_bins, dtype=dtype)
+    q_xy = (counts_xy + alpha) / denom
 
-    # Marginal pmfs with 1D-bin smoothing (matches previous kde behavior).
-    counts_x1 = jnp.sum(counts_x1_x2, axis=1)
-    n_bins_x1 = counts_x1.shape[0]
-    alpha_x1 = _alpha_eff(n_bins_x1)
-    denom_x1 = n_eff + alpha_x1 * jnp.asarray(n_bins_x1, dtype=dtype)
-    denom_x1 = jnp.where(denom_x1 > 0, denom_x1, one)
-    q_x1 = (counts_x1 + alpha_x1) / denom_x1
+    # Marginals derived from the same joint pmf -> true KL-based MI.
+    q_x = jnp.sum(q_xy, axis=1)
+    q_y = jnp.sum(q_xy, axis=0)
 
-    counts_x2 = jnp.sum(counts_x1_x2, axis=0)
-    n_bins_x2 = counts_x2.shape[0]
-    alpha_x2 = _alpha_eff(n_bins_x2)
-    denom_x2 = n_eff + alpha_x2 * jnp.asarray(n_bins_x2, dtype=dtype)
-    denom_x2 = jnp.where(denom_x2 > 0, denom_x2, one)
-    q_x2 = (counts_x2 + alpha_x2) / denom_x2
+    # True mutual information:
+    # I = sum_{x,y} q(x,y) * log(q(x,y) / (q(x) q(y))).
+    # Use support masking so zero-mass bins contribute exactly 0 in the limit.
+    log_q_xy = jnp.log(q_xy)
+    log_q_x = jnp.log(q_x)
+    log_q_y = jnp.log(q_y)
+    log_indep = log_q_x[:, None] + log_q_y[None, :]
 
-    # More numerically stable computation using direct log-ratio formula:
-    # I(X;Y) = sum_{x,y} q(x,y) * log(q(x,y) / (q(x) * q(y)))
-    # Computed in log-space to avoid underflow and cancellation errors.
+    support = q_xy > 0
 
-    tiny = jnp.finfo(q_x1_x2.dtype).tiny
+    mi_nat = jnp.sum(jnp.where(support, q_xy * (log_q_xy - log_indep), 0.0))
 
-    # Compute log probabilities in log-space
-    log_q_x1_x2 = jnp.log2(jnp.maximum(q_x1_x2, tiny))
-    log_q_x1 = jnp.log2(jnp.maximum(q_x1, tiny))
-    log_q_x2 = jnp.log2(jnp.maximum(q_x2, tiny))
-
-    # Create outer product for log(q(x) * q(y)) = log q(x) + log q(y)
-    log_q_x1_2d = log_q_x1[:, None]  # shape: (n_grid_points1, 1)
-    log_q_x2_2d = log_q_x2[None, :]  # shape: (1, n_grid_points2)
-    log_q_x1_x2_indep = (
-        log_q_x1_2d + log_q_x2_2d
-    )  # shape: (n_grid_points1, n_grid_points2)
-
-    # I(X;Y) = sum q(x,y) * (log q(x,y) - log(q(x) * q(y)))
-    log_ratio = log_q_x1_x2 - log_q_x1_x2_indep
-
-    # Sum over all (x,y) pairs. Terms where q(x,y) = 0 contribute 0, so safe to sum all
-    mi = jnp.sum(q_x1_x2 * log_ratio)
-
-    # Convert to desired base if needed
-    if base != 2.0:
-        mi = mi / jnp.log2(base)
-
+    # Convert from nats to requested base.
+    mi = mi_nat / jnp.log(jnp.asarray(base, dtype=dtype))
     return mi
 
 
 def state_mutual_info(
     results: SimulationResults,
-    species_at_t: typing.Iterable[tuple[str, int | float]],
+    species_at_t: typing.Iterable[tuple[str, typing.Any]],
     n_grid_points1: int | None = None,
     n_grid_points2: int | None = None,
     min_max_vals1: tuple[float, float] | None = None,
@@ -189,13 +170,20 @@ def state_mutual_info(
         If left as ``None``, grid parameters are determined from the data (not
         JIT-able).
 
+    Note: Taking MI gradients
+        For gradient-based optimization, using Dirichlet smoothing
+        (``dirichlet_alpha > 0`` or ``dirichlet_kappa > 0``) is generally
+        preferred and is the safest choice for stable autodiff. With no
+        smoothing (both set to ``0``), MI can remain finite, but gradients are
+        piecewise and may be numerically fragile near zero-mass bins.
+
     Args:
         results: The `SimulationResults` from a `stochsimsolve` simulation.
             This should contain a batch of simulation trajectories (e.g., from
             vmapping over `stochsimsolve`).
         species_at_t: An iterable containing two tuples, where each tuple consists
-            of a species name and a time point, e.g., `[('S1', t1), ('S2', t2)]`.
-            The time point can be an integer index or a float time value.
+            of a species name and a scalar physical time point, e.g.,
+            `[('S1', t1), ('S2', t2)]`.
         n_grid_points1: Number of grid points for the first species. If ``None``,
             determined automatically (not JIT-compatible).
         n_grid_points2: Number of grid points for the second species. If ``None``,
@@ -215,7 +203,7 @@ def state_mutual_info(
             if provided.
         dirichlet_kappa: Total pseudo-count for Dirichlet smoothing. If provided,
             takes priority over ``dirichlet_alpha``. If ``None``, uses
-            ``dirichlet_alpha`` instead.
+            ``dirichlet_alpha`` instead. Default is ``None``.
 
     Returns:
         The mutual information between the distributions of the two specified
@@ -233,19 +221,13 @@ def state_mutual_info(
     s1_idx = results.species.index(s1_name)
     s2_idx = results.species.index(s2_name)
 
-    # Extract data for the first species at time t1
-    if isinstance(t1, int):
-        x1 = pytree_to_state(results.x, results.species)[:, t1, s1_idx]
-    else:
-        x1 = pytree_to_state(results.interpolate(t1).x, results.species)[:, s1_idx]
+    t1 = normalize_time_scalar(t1, arg_name='species_at_t[0][1]')
+    t2 = normalize_time_scalar(t2, arg_name='species_at_t[1][1]')
 
-    # Extract data for the second species at time t2
-    if isinstance(t2, int):
-        x2 = pytree_to_state(results.x, results.species)[:, t2, s2_idx]
-    else:
-        # Re-interpolate even if t1==t2 for simplicity and to handle
-        # the case where results.interpolate is not memoized.
-        x2 = pytree_to_state(results.interpolate(t2).x, results.species)[:, s2_idx]
+    x1 = pytree_to_state(results.interpolate(t1).x, results.species)[:, s1_idx]
+    # Re-interpolate even if t1==t2 for simplicity and to handle
+    # the case where results.interpolate is not memoized.
+    x2 = pytree_to_state(results.interpolate(t2).x, results.species)[:, s2_idx]
 
     return mutual_information(
         x1,

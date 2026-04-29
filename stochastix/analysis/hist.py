@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 
 from .._state_utils import pytree_to_state
+from ._utils import normalize_time_scalar
 from .kde_1d import kde
 
 if typing.TYPE_CHECKING:
@@ -20,7 +21,7 @@ def state_kde(
     n_grid_points: int | None = None,
     min_max_vals: tuple[float, float] | None = None,
     density: bool = True,
-    t: int | float = -1,
+    t: typing.Any = None,
     *,
     kde_type: str = 'wendland_c2',
     bw_multiplier: float = 1.0,
@@ -46,8 +47,8 @@ def state_kde(
         density: If ``True``, returns a probability density function whose
             Riemann sum over the grid integrates to 1. If ``False``, returns
             unnormalized counts/weights per grid point.
-        t: The time point (float) or time index (int) at which to compute the
-            KDE. If ``-1`` (default), uses the final time point.
+        t: Scalar physical time at which to compute the KDE. If ``None``
+            (default), uses the final recorded state.
         kde_type: Type of kernel to use. One of ``'triangular'``, ``'exponential'``,
             ``'gaussian'``, or ``'wendland_c2'``. Default is ``'wendland_c2'``.
         bw_multiplier: Kernel bandwidth multiplier. Controls the width of the
@@ -75,10 +76,10 @@ def state_kde(
 
     species_indices = jnp.array([results.species.index(s) for s in species])
 
-    if isinstance(t, int):
-        t_idx = t
-        x = pytree_to_state(results.x, results.species)[:, t_idx, species_indices]
+    if t is None:
+        x = pytree_to_state(results.x, results.species)[:, -1, species_indices]
     else:
+        t = normalize_time_scalar(t, arg_name='t')
         results = results.interpolate(t)
         x = pytree_to_state(results.x, results.species)[:, species_indices]
 
