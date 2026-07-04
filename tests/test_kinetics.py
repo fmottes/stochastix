@@ -17,6 +17,12 @@ from stochastix.kinetics import (
     MassAction,
     MichaelisMenten,
 )
+from stochastix.kinetics._massaction import (
+    mass_action_ode_rate,
+    mass_action_ode_rate_low_order2,
+    mass_action_propensity,
+    mass_action_propensity_low_order2,
+)
 
 
 def test_constant_kinetics():
@@ -64,6 +70,58 @@ def test_mass_action_kinetics_bimolecular():
     propensity = kinetics.propensity_fn(x, reactants)
     # Expected: k * C(4, 1) * C(5, 1) = 0.5 * 4 * 5 = 10.0
     assert np.isclose(propensity, 10.0)
+
+
+def test_mass_action_propensity_low_order2_matches_generic():
+    """Test low-order propensity kernel against the generic implementation."""
+    x = jnp.array([0.5, 1.0, 1.5, 2.0, 4.0])
+    reactants = jnp.array([1.0, 1.0, 2.0, 0.0, 2.0])
+    k = 0.7
+    volume = 1.0
+
+    generic = mass_action_propensity(k, x, reactants, volume)
+    low_order = mass_action_propensity_low_order2(k, x, reactants, volume)
+
+    assert np.isclose(low_order, generic, rtol=1e-6, atol=1e-8)
+
+
+def test_mass_action_propensity_low_order2_fallback_matches_generic():
+    """Test low-order propensity kernel fallback branch on coefficient > 2."""
+    x = jnp.array([5.0])
+    reactants = jnp.array([3.0])
+    k = 0.4
+    volume = 1.0
+
+    generic = mass_action_propensity(k, x, reactants, volume)
+    low_order = mass_action_propensity_low_order2(k, x, reactants, volume)
+
+    assert np.isclose(low_order, generic, rtol=1e-6, atol=1e-8)
+
+
+def test_mass_action_ode_rate_low_order2_matches_generic():
+    """Test low-order ODE-rate kernel against the generic implementation."""
+    x = jnp.array([0.5, 1.0, 1.5, 2.0, 4.0])
+    reactants = jnp.array([1.0, 1.0, 2.0, 0.0, 2.0])
+    k = 0.7
+    volume = 2.0
+
+    generic = mass_action_ode_rate(k, x, reactants, volume)
+    low_order = mass_action_ode_rate_low_order2(k, x, reactants, volume)
+
+    assert np.isclose(low_order, generic, rtol=1e-6, atol=1e-8)
+
+
+def test_mass_action_ode_rate_low_order2_fallback_matches_generic():
+    """Test low-order ODE-rate kernel fallback branch on non-low-order coeff."""
+    x = jnp.array([5.0])
+    reactants = jnp.array([2.5])
+    k = 0.4
+    volume = 3.0
+
+    generic = mass_action_ode_rate(k, x, reactants, volume)
+    low_order = mass_action_ode_rate_low_order2(k, x, reactants, volume)
+
+    assert np.isclose(low_order, generic, rtol=1e-6, atol=1e-8)
 
 
 def test_michaelis_menten_fixed_enzyme():

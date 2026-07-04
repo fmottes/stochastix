@@ -198,6 +198,46 @@ def mass_action_propensity(
     return k_corrected * jnp.prod(jax.vmap(MassAction._binom)(x, reactants))
 
 
+def mass_action_propensity_low_order2(
+    rate_constant: float | jnp.floating,
+    x: jnp.ndarray,
+    reactants: jnp.ndarray,
+    volume: float | jnp.floating = 1.0,
+) -> jnp.ndarray:
+    """Compute mass action propensity optimized for reactant stoichiometries <= 2.
+
+    This kernel is intended for networks where all reactant stoichiometric
+    coefficients are integers in {0, 1, 2}. It uses closed-form combinatorial
+    terms and falls back to the generic binomial for unexpected coefficients.
+    """
+    x = jnp.asarray(x, dtype=jnp.result_type(float))
+    reactants = jnp.asarray(reactants, dtype=jnp.result_type(float))
+
+    order = jnp.sum(reactants)
+    k_corrected = rate_constant * jnp.power(volume, 1 - order)
+
+    is_low_order = jnp.all(
+        jnp.logical_or(
+            jnp.logical_or(reactants == 0.0, reactants == 1.0), reactants == 2.0
+        )
+    )
+
+    def _fast_terms():
+        term_1 = jnp.where(x >= 1.0, x, 0.0)
+        term_2 = jnp.where(x >= 2.0, 0.5 * x * (x - 1.0), 0.0)
+        terms = jnp.where(
+            reactants == 0.0,
+            1.0,
+            jnp.where(reactants == 1.0, term_1, term_2),
+        )
+        return k_corrected * jnp.prod(terms)
+
+    def _fallback_terms():
+        return k_corrected * jnp.prod(jax.vmap(MassAction._binom)(x, reactants))
+
+    return jax.lax.cond(is_low_order, _fast_terms, _fallback_terms)
+
+
 def mass_action_ode_rate(
     rate_constant: float | jnp.floating,
     x: jnp.ndarray,
@@ -219,3 +259,43 @@ def mass_action_ode_rate(
     # to get rate in molecules/time, consistent with the S-matrix.
     rate_in_conc_units = rate_constant * jnp.prod(concentrations**reactants)
     return rate_in_conc_units * volume
+
+
+def mass_action_ode_rate_low_order2(
+    rate_constant: float | jnp.floating,
+    x: jnp.ndarray,
+    reactants: jnp.ndarray,
+    volume: float | jnp.floating = 1.0,
+) -> jnp.ndarray:
+    """Compute deterministic mass action rate optimized for stoichiometries <= 2.
+
+    This kernel is intended for networks where all reactant stoichiometric
+    coefficients are integers in {0, 1, 2}. It uses closed-form powers and
+    falls back to generic exponentiation for unexpected coefficients.
+    """
+    x = jnp.asarray(x, dtype=jnp.result_type(float))
+    reactants = jnp.asarray(reactants, dtype=jnp.result_type(float))
+    concentrations = x / volume
+
+    is_low_order = jnp.all(
+        jnp.logical_or(
+            jnp.logical_or(reactants == 0.0, reactants == 1.0), reactants == 2.0
+        )
+    )
+
+    def _fast_terms():
+        terms = jnp.where(
+            reactants == 0.0,
+            1.0,
+            jnp.where(
+                reactants == 1.0,
+                concentrations,
+                concentrations * concentrations,
+            ),
+        )
+        return rate_constant * jnp.prod(terms) * volume
+
+    def _fallback_terms():
+        return rate_constant * jnp.prod(concentrations**reactants) * volume
+
+    return jax.lax.cond(is_low_order, _fast_terms, _fallback_terms)
