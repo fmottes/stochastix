@@ -164,3 +164,34 @@ def test_differentiable_solvers_grad(solver_class):
         k_birth_initial, k_death_initial, solver
     )
     assert grad_k_death > 0
+
+
+@pytest.mark.parametrize(
+    'solver_class', [DifferentiableDirect, DifferentiableFirstReaction]
+)
+def test_exact_differentiable_solvers_never_select_zero_propensity(solver_class):
+    """A disabled reaction must have exactly zero event probability."""
+    network = ReactionNetwork(
+        [
+            Reaction('0 -> A', MassAction(k=1.0)),
+            Reaction('0 -> B', MassAction(k=1.0)),
+        ]
+    )
+    propensities = jnp.array([0.0, jnp.finfo(jnp.float32).eps])
+    x = jnp.zeros(network.n_species)
+    keys = jax.random.split(jax.random.PRNGKey(2026), 512)
+    solver = solver_class()
+
+    def sample_reaction(key):
+        step_result, _ = solver.step(
+            network,
+            jnp.array(0.0),
+            x,
+            propensities,
+            None,
+            key=key,
+        )
+        return step_result.reaction_idx
+
+    selected = jax.vmap(sample_reaction)(keys)
+    assert jnp.all(selected == 1)
