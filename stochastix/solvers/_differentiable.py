@@ -200,6 +200,10 @@ class DifferentiableDirect(AbstractStochasticSolver):
     enable gradient propagation, allowing for end-to-end training of stochastic
     models with gradient-based optimization.
 
+    Note: Zero-propensity gradients
+        At each step, the selection relaxation has zero local derivative for
+        zero-propensity reactions.
+
     Attributes:
         logits_scale: The temperature for the softmax relaxation.
         is_exact_solver: Boolean flag indicating exactness based on exact_fwd.
@@ -348,6 +352,10 @@ class DifferentiableFirstReaction(AbstractStochasticSolver):
 
     The backward pass uses a continuous relaxation (soft-argmin) of the
     reaction choice and a relaxed `dt` to enable gradient propagation.
+
+    Note: Zero-propensity gradients
+        At each step, the selection relaxation has zero local derivative for
+        zero-propensity reactions.
 
     Attributes:
         logits_scale: The temperature for the softmax relaxation.
