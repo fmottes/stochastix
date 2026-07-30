@@ -200,6 +200,10 @@ class DifferentiableDirect(AbstractStochasticSolver):
     enable gradient propagation, allowing for end-to-end training of stochastic
     models with gradient-based optimization.
 
+    Note: Zero-propensity gradients
+        At each step, the selection relaxation has zero local derivative for
+        zero-propensity reactions.
+
     Attributes:
         logits_scale: The temperature for the softmax relaxation.
         is_exact_solver: Boolean flag indicating exactness based on exact_fwd.
@@ -292,7 +296,9 @@ class DifferentiableDirect(AbstractStochasticSolver):
         dt = -jnp.log(rng.uniform(key_dt)) / a0
 
         gumbels = rng.gumbel(key_gumbel, shape=a.shape)
-        logits = jnp.log(a + jnp.finfo(a.dtype).eps)
+        positive = a > 0
+        safe_a = jnp.where(positive, a, jnp.ones_like(a))
+        logits = jnp.where(positive, jnp.log(safe_a), -jnp.inf)
         perturbed_logits = logits + gumbels
 
         p_gumbel = jax.nn.softmax(perturbed_logits / self.logits_scale)
@@ -346,6 +352,10 @@ class DifferentiableFirstReaction(AbstractStochasticSolver):
 
     The backward pass uses a continuous relaxation (soft-argmin) of the
     reaction choice and a relaxed `dt` to enable gradient propagation.
+
+    Note: Zero-propensity gradients
+        At each step, the selection relaxation has zero local derivative for
+        zero-propensity reactions.
 
     Attributes:
         logits_scale: The temperature for the softmax relaxation.
@@ -430,8 +440,12 @@ class DifferentiableFirstReaction(AbstractStochasticSolver):
         stoichiometry_matrix = jnp.asarray(network.stoichiometry_matrix)
 
         # Sample candidate firing times
-        dt_vec = -jnp.log(rng.uniform(key, shape=a.shape)) / (
-            a + jnp.finfo(a.dtype).eps
+        positive = a > 0
+        safe_a = jnp.where(positive, a, jnp.ones_like(a))
+        dt_vec = jnp.where(
+            positive,
+            -jnp.log(rng.uniform(key, shape=a.shape)) / safe_a,
+            jnp.inf,
         )
 
         # Differentiable backward pass using softmax relaxation
@@ -440,7 +454,7 @@ class DifferentiableFirstReaction(AbstractStochasticSolver):
         p_gumbel = jax.nn.softmax(-dt_vec / self.logits_scale)
 
         delta_x_soft = self._delta_x_soft(stoichiometry_matrix, p_gumbel)
-        dt_soft = jnp.sum(p_gumbel * dt_vec)
+        dt_soft = jnp.sum(p_gumbel * jnp.where(positive, dt_vec, 0.0))
 
         if self.is_exact_solver:
             # Exact forward pass with straight-through estimator
