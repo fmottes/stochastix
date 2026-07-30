@@ -59,7 +59,7 @@ dev = [
     "pre-commit>=4.2.0",
     "pytest>=8.4.1",
     "pytest-cov>=6.2.1",
-    "ruff==0.14.13",
+    "ruff==0.16.0",
 ]
 docs = [
     "hippogriffe>=0.2.2",
@@ -68,7 +68,7 @@ docs = [
     "mkdocs-material>=9.6.14",
     "mkdocstrings[python]>=0.29.1",
     "pymdown-extensions>=10.16",
-    "ruff==0.14.13",
+    "ruff==0.16.0",
 ]
 
 
@@ -76,7 +76,7 @@ docs = [
 
 [tool.ruff]
 extend-include = ["*.ipynb"]
-required-version = "==0.14.13"
+required-version = "==0.16.0"
 
 [tool.ruff.lint]
 extend-select = [
