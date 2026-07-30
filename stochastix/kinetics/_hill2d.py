@@ -6,8 +6,8 @@ import warnings
 from collections.abc import Callable
 
 import equinox as eqx
-import jax.nn as nn
 import jax.numpy as jnp
+from jax import nn
 from jax.scipy.special import logsumexp
 
 from ._base import AbstractKinetics
@@ -207,12 +207,12 @@ class HillAA(AbstractKinetics):
         logic: str,
         competitive_binding: bool = False,
         v0: float | jnp.ndarray = 0.0,
-        transform_v: Callable = None,
-        transform_K1: Callable = None,
-        transform_K2: Callable = None,
-        transform_n1: Callable = None,
-        transform_n2: Callable = None,
-        transform_v0: Callable = None,
+        transform_v: Callable | None = None,
+        transform_K1: Callable | None = None,
+        transform_K2: Callable | None = None,
+        transform_n1: Callable | None = None,
+        transform_n2: Callable | None = None,
+        transform_v0: Callable | None = None,
         *,
         _activator1_idx: int = -1,
         _activator2_idx: int = -1,
@@ -417,12 +417,12 @@ class HillRR(AbstractKinetics):
         logic: str,
         competitive_binding: bool = False,
         v0: float | jnp.ndarray = 0.0,
-        transform_v: Callable = None,
-        transform_K1: Callable = None,
-        transform_K2: Callable = None,
-        transform_n1: Callable = None,
-        transform_n2: Callable = None,
-        transform_v0: Callable = None,
+        transform_v: Callable | None = None,
+        transform_K1: Callable | None = None,
+        transform_K2: Callable | None = None,
+        transform_n1: Callable | None = None,
+        transform_n2: Callable | None = None,
+        transform_v0: Callable | None = None,
         *,
         _repressor1_idx: int = -1,
         _repressor2_idx: int = -1,
@@ -627,12 +627,12 @@ class HillAR(AbstractKinetics):
         logic: str,
         competitive_binding: bool = False,
         v0: float | jnp.ndarray = 0.0,
-        transform_v: Callable = None,
-        transform_Ka: Callable = None,
-        transform_Kr: Callable = None,
-        transform_na: Callable = None,
-        transform_nr: Callable = None,
-        transform_v0: Callable = None,
+        transform_v: Callable | None = None,
+        transform_Ka: Callable | None = None,
+        transform_Kr: Callable | None = None,
+        transform_na: Callable | None = None,
+        transform_nr: Callable | None = None,
+        transform_v0: Callable | None = None,
         *,
         _activator_idx: int = -1,
         _repressor_idx: int = -1,

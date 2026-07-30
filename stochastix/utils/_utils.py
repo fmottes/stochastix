@@ -26,7 +26,7 @@ def algebraic_sigmoid(x: jnp.ndarray):
 
 def rate_constant_conc_to_count(
     rate_constant: jnp.ndarray | float,
-    reaction_order: float | int | jnp.floating | jnp.integer,
+    reaction_order: float | jnp.floating | jnp.integer,
     volume: float | jnp.floating,
     use_molar_units: bool = True,
     avogadro_number: float | jnp.floating | None = None,

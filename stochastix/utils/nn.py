@@ -1,5 +1,6 @@
 """Basic neural network layers and architectures for kinetic modeling."""
 
+import itertools
 from collections.abc import Callable
 from typing import Literal
 
@@ -168,7 +169,7 @@ class MultiLayerPerceptron(eqx.Module, strict=True):
         all_sizes = [in_size, *hidden_sizes, out_size]
         keys = rng.split(key, len(all_sizes) - 1)
         layers = []
-        for i, (in_dim, out_dim) in enumerate(zip(all_sizes[:-1], all_sizes[1:])):
+        for i, (in_dim, out_dim) in enumerate(itertools.pairwise(all_sizes)):
             is_final_layer = i == len(all_sizes) - 2
             bias = use_final_bias if is_final_layer else use_bias
             layers.append(

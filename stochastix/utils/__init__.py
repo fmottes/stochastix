@@ -7,9 +7,9 @@ from ._utils import (
 )
 
 __all__ = [
-    'nn',
-    'visualization',
-    'optimization',
     'algebraic_sigmoid',
+    'nn',
+    'optimization',
     'rate_constant_conc_to_count',
+    'visualization',
 ]

@@ -68,7 +68,6 @@ class AbstractStochasticSolver(eqx.Module):
         Returns:
             The initial state of the solver.
         """
-        return None
 
     @abc.abstractmethod
     def propensities(
@@ -87,7 +86,6 @@ class AbstractStochasticSolver(eqx.Module):
         Returns:
             Array of propensities for each reaction.
         """
-        pass
 
     @abc.abstractmethod
     def step(
@@ -113,7 +111,6 @@ class AbstractStochasticSolver(eqx.Module):
         Returns:
             Tuple containing the SimulationStep result and the new solver state.
         """
-        pass
 
     @abc.abstractmethod
     def _delta_x(
@@ -132,4 +129,3 @@ class AbstractStochasticSolver(eqx.Module):
         Returns:
             The change in the state vector.
         """
-        pass

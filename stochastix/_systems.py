@@ -16,6 +16,8 @@ from .reaction import ReactionNetwork
 if typing.TYPE_CHECKING:
     from .solvers import AbstractStochasticSolver
 
+_DEFAULT_ODE_SOLVER = dfx.Dopri5()
+
 
 class StochasticModel(eqx.Module):
     """A stochastic model combining a reaction network and a solver.
@@ -127,7 +129,7 @@ class MeanFieldModel(StochasticModel):
     def __init__(
         self,
         network: ReactionNetwork,
-        solver: dfx.AbstractSolver = dfx.Dopri5(),
+        solver: dfx.AbstractSolver = _DEFAULT_ODE_SOLVER,
         T: float | jnp.ndarray | None = None,
         saveat_steps: int | list[float] | jnp.ndarray = -1,
         max_steps: int = int(1e4),

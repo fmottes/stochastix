@@ -8,15 +8,15 @@ from ._mm import MichaelisMenten
 from ._nn import MLP
 
 __all__ = [
+    'MLP',
     'AbstractKinetics',
     'Constant',
-    'MassAction',
-    'MichaelisMenten',
+    'HillAA',
+    'HillAR',
     'HillActivator',
+    'HillRR',
     'HillRepressor',
     'HillSingleRegulator',
-    'HillAA',
-    'HillRR',
-    'HillAR',
-    'MLP',
+    'MassAction',
+    'MichaelisMenten',
 ]

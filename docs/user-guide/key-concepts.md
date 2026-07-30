@@ -40,7 +40,7 @@ from stochastix.reaction import Reaction
 from stochastix.kinetics import MassAction
 
 # Defines the reaction A + B -> C with a mass-action rate constant of 0.1
-reaction = Reaction("A + B -> C", MassAction(k=0.1))
+reaction = Reaction('A + B -> C', MassAction(k=0.1))
 ```
 
 ### ReactionNetwork
@@ -55,9 +55,9 @@ from stochastix.reaction import Reaction, ReactionNetwork
 from stochastix.kinetics import MassAction
 
 reactions = [
-    Reaction("S + E -> SE", MassAction(k=0.1)),
-    Reaction("SE -> S + E", MassAction(k=0.05)),
-    Reaction("SE -> P + E", MassAction(k=0.2))
+    Reaction('S + E -> SE', MassAction(k=0.1)),
+    Reaction('SE -> S + E', MassAction(k=0.05)),
+    Reaction('SE -> P + E', MassAction(k=0.2)),
 ]
 network = ReactionNetwork(reactions)
 ```

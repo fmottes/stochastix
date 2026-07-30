@@ -40,7 +40,6 @@ class AbstractKinetics(eqx.Module):
         Returns:
             The computed propensity for the reaction (in units of 1/time).
         """
-        pass
 
     @abc.abstractmethod
     def ode_rate_fn(self, x, reactants, t=None, volume=1.0):
@@ -58,7 +57,6 @@ class AbstractKinetics(eqx.Module):
         Returns:
             The computed deterministic rate (in units of molecules/time).
         """
-        pass
 
     def _bind_to_network(self, species_map: dict[str, int]) -> AbstractKinetics:
         """Binds the kinetics object to a network's species map.

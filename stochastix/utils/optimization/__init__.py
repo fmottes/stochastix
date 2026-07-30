@@ -26,14 +26,14 @@ warnings.warn(
 )
 
 __all__ = [
-    'reinforce_loss',
-    'losses',
-    'rewards',
-    'utils',
     'dataloader',
     'discounted_returns',
     'grad',
+    'losses',
     'neg_final_state_distance',
-    'steady_state_distance',
+    'reinforce_loss',
+    'rewards',
     'rewards_from_state_metric',
+    'steady_state_distance',
+    'utils',
 ]

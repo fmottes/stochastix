@@ -47,7 +47,9 @@ Stochastix is a JAX library for differentiable stochastic simulation of chemical
 The primary API is `stochsimsolve` and `faststochsimsolve`, both `@eqx.filter_jit`. Ensemble simulations vmap over these directly:
 
 ```python
-results = eqx.filter_vmap(stx.stochsimsolve, in_axes=(0, None, None))(keys, network, x0, T=T)
+results = eqx.filter_vmap(stx.stochsimsolve, in_axes=(0, None, None))(
+    keys, network, x0, T=T
+)
 ```
 
 - **`stochsimsolve`**: Uses `jax.lax.scan` — stores full trajectory, supports reverse-mode autodiff. Default solver is `DifferentiableDirect`.

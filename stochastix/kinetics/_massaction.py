@@ -33,7 +33,7 @@ class Constant(AbstractKinetics):
     transform: Callable = eqx.field(static=True)
     _requires_species: tuple[str, ...] = eqx.field(static=True)
 
-    def __init__(self, k: float, transform: Callable = None):
+    def __init__(self, k: float, transform: Callable | None = None):
         """Initializes the Constant kinetics.
 
         Args:
@@ -106,7 +106,7 @@ class MassAction(AbstractKinetics):
     transform: Callable = eqx.field(static=True)
     _requires_species: tuple[str, ...] = eqx.field(static=True)
 
-    def __init__(self, k: float, transform: Callable = None):
+    def __init__(self, k: float, transform: Callable | None = None):
         """Initializes the MassAction kinetics.
 
         Args:

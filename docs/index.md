@@ -71,16 +71,18 @@ import stochastix as stx
 from stochastix.kinetics import MassAction
 
 # simple reaction chain with mass action rates
-network = stx.ReactionNetwork([
-    stx.Reaction("0 -> X", MassAction(k=0.01)),
-    stx.Reaction("X -> Y", MassAction(k=0.002))
-])
+network = stx.ReactionNetwork(
+    [
+        stx.Reaction('0 -> X', MassAction(k=0.01)),
+        stx.Reaction('X -> Y', MassAction(k=0.002)),
+    ]
+)
 
 
-x0 = jnp.array([0,0]) #initial conditions [X,Y]
-sim_key = jax.random.PRNGKey(0) #key for jax random number generator
+x0 = jnp.array([0, 0])  # initial conditions [X,Y]
+sim_key = jax.random.PRNGKey(0)  # key for jax random number generator
 
-#solve with direct method from t0=0s to t1=100s
+# solve with direct method from t0=0s to t1=100s
 sim_results = stx.stochsimsolve(sim_key, network, x0, T=100.0)
 ```
 
