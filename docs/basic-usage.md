@@ -34,9 +34,9 @@ beta = 0.4
 gamma = 0.4
 
 reactions = [
-    Reaction("A -> 2 A", MassAction(k=alpha), name="prey_reproduction"),
-    Reaction("A + B -> 2 B", MassAction(k=beta), name="predation"),
-    Reaction("B -> 0", MassAction(k=gamma), name="predator_death"),
+    Reaction('A -> 2 A', MassAction(k=alpha), name='prey_reproduction'),
+    Reaction('A + B -> 2 B', MassAction(k=beta), name='predation'),
+    Reaction('B -> 0', MassAction(k=gamma), name='predator_death'),
 ]
 
 network = ReactionNetwork(reactions)
@@ -65,7 +65,7 @@ You can pass a PyTree (e.g., dict) whose leaves are named after species. Extra l
 For example, you can use a `dict`:
 
 ```python
-x0 = {"A": 50.0, "B": 5.0}
+x0 = {'A': 50.0, 'B': 5.0}
 ssa_results = stx.stochsimsolve(subkey, network, x0, T=T)
 # ssa_results.x is a dict with the same keys as x0
 ```
@@ -75,9 +75,11 @@ or a `NamedTuple`:
 ```python
 from typing import NamedTuple
 
+
 class State(NamedTuple):
     A: float
     B: float
+
 
 x0 = State(A=50.0, B=5.0)
 ssa_results = stx.stochsimsolve(subkey, network, x0, T=T)
@@ -100,10 +102,14 @@ Once the simulation the total simulation time is reached, the simulation will ju
 
 ```python
 # Use FirstReactionMethod explicitly
-ssa_results = stx.stochsimsolve(subkey, network, x0, T=T, solver=stx.FirstReactionMethod())
+ssa_results = stx.stochsimsolve(
+    subkey, network, x0, T=T, solver=stx.FirstReactionMethod()
+)
 
 # Or an approximate solver
-ssa_results = stx.stochsimsolve(subkey, network, x0, T=T, solver=stx.TauLeaping(epsilon=0.03))
+ssa_results = stx.stochsimsolve(
+    subkey, network, x0, T=T, solver=stx.TauLeaping(epsilon=0.03)
+)
 ```
 
 ## 5. SimulationResults essentials

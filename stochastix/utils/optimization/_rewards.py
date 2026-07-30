@@ -20,7 +20,7 @@ def steady_state_distance(from_t=0.0, species=0):
     """
     # check if species is an integer or string
     if not isinstance(species, int | str):
-        raise ValueError('species must be an integer or a string')
+        raise TypeError('species must be an integer or a string')
 
     def _loss(ssa_results: SimulationResults, target_ss: jnp.ndarray):
         # if species is a string, get its index
@@ -53,7 +53,7 @@ def neg_final_state_distance(species=0, distance='L1'):
     """
     # check if species is an integer or string
     if not isinstance(species, int | str):
-        raise ValueError('species must be an integer or a string')
+        raise TypeError('species must be an integer or a string')
 
     if distance == 'L1':
         dist_fn = lambda x, y: jnp.abs(x - y)

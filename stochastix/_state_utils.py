@@ -8,7 +8,7 @@ from equinox import is_array
 
 def add_to_state(
     x: jnp.ndarray,
-    delta_x: float | int | jnp.floating | jnp.integer | jnp.ndarray,
+    delta_x: float | jnp.floating | jnp.integer | jnp.ndarray,
     species: None | tuple[str, ...] = None,
 ) -> jnp.ndarray | Any:
     """Additively applies state updates to a flat state vector or PyTree.
@@ -94,12 +94,11 @@ def pytree_to_state(tree: typing.Any, species: tuple[str, ...]) -> jnp.ndarray:
                     f'Duplicate leaf for species "{name}" found in the provided PyTree.'
                 )
             collected[name] = jnp.asarray(leaf, dtype=dtype)
-        return None
 
     # Traverse the tree to populate `collected`. The return value is ignored.
     try:
         jtu.tree_map_with_path(_collect, tree)
-    except Exception:
+    except Exception:  # noqa: BLE001
         # Fall back to attribute/dict handling if traversal fails for exotic objects
         collected = {}
 
@@ -122,7 +121,7 @@ def pytree_to_state(tree: typing.Any, species: tuple[str, ...]) -> jnp.ndarray:
 
     try:
         is_attr_based = bool(species) and all(hasattr(tree, s) for s in species)
-    except Exception:
+    except Exception:  # noqa: BLE001
         is_attr_based = False
 
     if is_attr_based:
@@ -164,9 +163,10 @@ def state_to_pytree(
         A PyTree of the same structure as `template`, but with species leaves replaced by their trajectories, or the original `x_trajectory` if `template` was array-like.
     """
     # Fast-path: array-like input was provided initially
-    if isinstance(template, (jnp.ndarray | list | tuple | int | float)):
-        if not hasattr(template, '_fields'):
-            return x_trajectory
+    if isinstance(template, (jnp.ndarray | list | tuple | int | float)) and not hasattr(
+        template, '_fields'
+    ):
+        return x_trajectory
 
     species_to_idx = {s: i for i, s in enumerate(species)}
 
@@ -184,6 +184,6 @@ def state_to_pytree(
 
     try:
         return jtu.tree_map_with_path(_replace, template)
-    except Exception:
+    except Exception:  # noqa: BLE001
         # If mapping fails (non-standard object), return trajectory as-is
         return x_trajectory

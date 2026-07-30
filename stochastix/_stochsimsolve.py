@@ -17,6 +17,8 @@ if typing.TYPE_CHECKING:
     from .reaction import ReactionNetwork
     from .solvers import AbstractStochasticSolver
 
+_DEFAULT_STOCHASTIC_SOLVER = DifferentiableDirect()
+
 
 def _do_step_logic(
     network: ReactionNetwork,
@@ -48,7 +50,7 @@ def _do_step_logic(
         return step_result, solver_state_new
 
     def _stop(args):
-        network, t, x, a, solver_state, key_solver = args
+        _network, _t, x, a, solver_state, _key_solver = args
         dt = jnp.array(0.0)
         a_stop = jnp.zeros_like(a)
 
@@ -143,7 +145,7 @@ def stochsimsolve(
     t0: float = 0.0,
     T: float = 3600.0,
     max_steps: int = int(1e5),
-    solver: AbstractStochasticSolver = DifferentiableDirect(),
+    solver: AbstractStochasticSolver = _DEFAULT_STOCHASTIC_SOLVER,
     controller: AbstractController | None = None,
     save_trajectory: bool = True,
     save_propensities: bool = True,
@@ -276,7 +278,7 @@ def stochsimsolve(
     final_carry, history = jax.lax.scan(_step, carry0, None, length=max_steps)
 
     # Extract final state from carry
-    t_final, x_final, controller_state_final, solver_state_final, _ = final_carry
+    t_final, x_final, _controller_state_final, _solver_state_final, _ = final_carry
 
     if save_trajectory:
         # Mode: Full trajectory
@@ -347,7 +349,7 @@ def faststochsimsolve(
     t0: float = 0.0,
     T: float = 3600.0,
     max_steps: int = int(1e5),
-    solver: AbstractStochasticSolver = DifferentiableDirect(),
+    solver: AbstractStochasticSolver = _DEFAULT_STOCHASTIC_SOLVER,
     controller: AbstractController | None = None,
     save_propensities: bool = True,
 ) -> SimulationResults:
@@ -406,7 +408,7 @@ def faststochsimsolve(
     # Simulation Loop using while_loop (stops early)
     #########################################################
     def _cond(carry):
-        t, x, controller_state, solver_state, step_count, key_current = carry
+        t, x, _controller_state, _solver_state, step_count, _key_current = carry
         a = solver.propensities(network, x, t)
         a0 = jnp.sum(a)
         return jnp.logical_and(jnp.logical_and(t < T, a0 > 0), step_count < max_steps)
@@ -414,7 +416,7 @@ def faststochsimsolve(
     def _body(carry):
         t, x, controller_state, solver_state, step_count, key_current = carry
         key_step, key_next = jax.random.split(key_current)
-        new_t, new_x, new_controller_state, new_solver_state, new_step_result = (
+        new_t, new_x, new_controller_state, new_solver_state, _new_step_result = (
             _do_step_logic(
                 network,
                 solver,
@@ -442,8 +444,8 @@ def faststochsimsolve(
     (
         t_final,
         x_final,
-        controller_state_final,
-        solver_state_final,
+        _controller_state_final,
+        _solver_state_final,
         step_count_final,
         _,
     ) = final_carry

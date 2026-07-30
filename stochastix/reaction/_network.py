@@ -184,7 +184,7 @@ class ReactionNetwork(eqx.Module):
     def propensity_fn(
         self,
         x: jnp.ndarray,
-        t: float = None,
+        t: float | None = None,
         reaction_mask: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         """Computes the propensity vector for the network.
@@ -263,8 +263,10 @@ class ReactionNetwork(eqx.Module):
                     propensities = propensities.at[i].set(
                         jax.lax.cond(
                             reaction_mask[i],
-                            lambda: reaction.kinetics.propensity_fn(
-                                x, reactant_matrix[:, i], t, volume=self.volume
+                            lambda reaction=reaction, i=i: (
+                                reaction.kinetics.propensity_fn(
+                                    x, reactant_matrix[:, i], t, volume=self.volume
+                                )
                             ),
                             lambda: 0.0,
                         )

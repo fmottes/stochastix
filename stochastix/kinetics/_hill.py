@@ -6,8 +6,8 @@ import warnings
 from collections.abc import Callable
 
 import equinox as eqx
-import jax.nn as nn
 import jax.numpy as jnp
+from jax import nn
 
 from ._base import AbstractKinetics
 
@@ -56,10 +56,10 @@ class HillActivator(AbstractKinetics):
         K: float | jnp.ndarray,
         n: float | jnp.ndarray = 1.0,
         v0: float | jnp.ndarray = 0.0,
-        transform_v: Callable = None,
-        transform_K: Callable = None,
-        transform_n: Callable = None,
-        transform_v0: Callable = None,
+        transform_v: Callable | None = None,
+        transform_K: Callable | None = None,
+        transform_n: Callable | None = None,
+        transform_v0: Callable | None = None,
         *,
         _regulator_idx: int = -1,
     ):
@@ -249,10 +249,10 @@ class HillRepressor(AbstractKinetics):
         K: float | jnp.ndarray,
         n: float | jnp.ndarray = 1.0,
         v0: float | jnp.ndarray = 0.0,
-        transform_v: Callable = None,
-        transform_K: Callable = None,
-        transform_n: Callable = None,
-        transform_v0: Callable = None,
+        transform_v: Callable | None = None,
+        transform_K: Callable | None = None,
+        transform_n: Callable | None = None,
+        transform_v0: Callable | None = None,
         *,
         _regulator_idx: int = -1,
     ):
@@ -443,10 +443,10 @@ class HillSingleRegulator(AbstractKinetics):
         K: float | jnp.ndarray,
         n: float | jnp.ndarray,
         v0: float | jnp.ndarray = 0.0,
-        transform_v: Callable = None,
-        transform_K: Callable = None,
-        transform_n: Callable = None,
-        transform_v0: Callable = None,
+        transform_v: Callable | None = None,
+        transform_K: Callable | None = None,
+        transform_n: Callable | None = None,
+        transform_v0: Callable | None = None,
         *,
         _regulator_idx: int = -1,
     ):

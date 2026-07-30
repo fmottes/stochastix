@@ -20,14 +20,11 @@ def test_plot_abundance_dynamic_runs():
     )
 
     # Test if it runs without error
-    try:
-        fig, ax = plot_abundance_dynamic(results)
-        # Check return types
-        assert fig is not None
-        assert isinstance(ax, plt.Axes)
-        plt.close(fig)  # Close the figure to avoid displaying it
-    except Exception as e:
-        pytest.fail(f'plot_abundance_dynamic raised an exception: {e}')
+    fig, ax = plot_abundance_dynamic(results)
+    # Check return types
+    assert fig is not None
+    assert isinstance(ax, plt.Axes)
+    plt.close(fig)  # Close the figure to avoid displaying it
 
 
 def test_plot_abundance_dynamic_with_options():
@@ -49,25 +46,22 @@ def test_plot_abundance_dynamic_with_options():
     )
 
     # Test with various options
-    try:
-        fig, ax = plot_abundance_dynamic(
-            results,
-            species=['S0'],
-            species_labels=['Species A'],
-            log_x_scale=True,
-            log_y_scale=True,
-            time_unit='m',
-        )
-        assert fig is not None
-        assert isinstance(ax, plt.Axes)
-        assert ax.get_xscale() == 'log'
-        assert ax.get_yscale() == 'log'
-        assert ax.get_xlabel() == 'time [m]'
-        assert len(ax.get_lines()) == 1
-        assert ax.get_legend().get_texts()[0].get_text() == 'Species A'
-        plt.close(fig)
-    except Exception as e:
-        pytest.fail(f'plot_abundance_dynamic with options raised an exception: {e}')
+    fig, ax = plot_abundance_dynamic(
+        results,
+        species=['S0'],
+        species_labels=['Species A'],
+        log_x_scale=True,
+        log_y_scale=True,
+        time_unit='m',
+    )
+    assert fig is not None
+    assert isinstance(ax, plt.Axes)
+    assert ax.get_xscale() == 'log'
+    assert ax.get_yscale() == 'log'
+    assert ax.get_xlabel() == 'time [m]'
+    assert len(ax.get_lines()) == 1
+    assert ax.get_legend().get_texts()[0].get_text() == 'Species A'
+    plt.close(fig)
 
 
 def test_plot_abundance_dynamic_input_validation():

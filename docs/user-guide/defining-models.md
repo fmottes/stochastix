@@ -23,7 +23,7 @@ from stochastix import Reaction
 from stochastix.kinetics import MassAction
 
 # Defines the reaction A + B -> C with a mass-action rate constant of 0.1
-reaction = Reaction("A + B -> C", MassAction(k=0.1))
+reaction = Reaction('A + B -> C', MassAction(k=0.1))
 ```
 
 **Notes:**
@@ -42,9 +42,9 @@ from stochastix import Reaction, ReactionNetwork
 from stochastix.kinetics import MassAction
 
 reactions = [
-    Reaction("S + E -> SE", MassAction(k=0.1), name="binding"),
-    Reaction("SE -> S + E", MassAction(k=0.05), name="unbinding"),
-    Reaction("SE -> P + E", MassAction(k=0.2), name="conversion")
+    Reaction('S + E -> SE', MassAction(k=0.1), name='binding'),
+    Reaction('SE -> S + E', MassAction(k=0.05), name='unbinding'),
+    Reaction('SE -> P + E', MassAction(k=0.2), name='conversion'),
 ]
 
 network = ReactionNetwork(reactions)
@@ -72,13 +72,15 @@ latex_str = network.to_latex()
 
 ```python
 # add new reaction to the network
-network = network + Reaction("P -> 0", MassAction(k=0.3), name="degradation")
+network = network + Reaction('P -> 0', MassAction(k=0.3), name='degradation')
 
 # slice the network
 network = network[1:2]  # remove the first and last reactions
 
 # add two networks together
-network1 = ReactionNetwork([Reaction("S -> 0", MassAction(k=0.1)), Reaction("P -> 0", MassAction(k=0.2))])
+network1 = ReactionNetwork(
+    [Reaction('S -> 0', MassAction(k=0.1)), Reaction('P -> 0', MassAction(k=0.2))]
+)
 network = network + network1
 
 # access the `degradation` reaction
@@ -101,17 +103,11 @@ Using `diffrax` for ODE/SDE integration:
 ```python
 # ODE solve
 term = network.diffrax_ode_term()
-sol_ode = diffrax.diffeqsolve(
-    term,
-    ...
-)
+sol_ode = diffrax.diffeqsolve(term, ...)
 
 # SDE (CLE) solve
 sde_term = network.diffrax_sde_term(t1=100.0, key=key)
-sol_sde = diffrax.diffeqsolve(
-    sde_term,
-    ...
-)
+sol_sde = diffrax.diffeqsolve(sde_term, ...)
 ```
 
 **Log-Likelihood Definition:** It defines the log-likelihood of a system's state or trajectory, for inference and optimization tasks.
@@ -142,7 +138,9 @@ total_logp = log_terms.sum()
 from stochastix import StochasticModel, MeanFieldModel, DirectMethod
 
 # Stochastic SSA wrapper
-ssa_model = StochasticModel(network=network, solver=DirectMethod(), T=100.0, max_steps=int(1e5))
+ssa_model = StochasticModel(
+    network=network, solver=DirectMethod(), T=100.0, max_steps=int(1e5)
+)
 
 # Deterministic ODE wrapper (diffrax)
 ode_model = MeanFieldModel(network=network, T=100.0, saveat_steps=101)

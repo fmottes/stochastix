@@ -39,15 +39,15 @@ def test_autocorrelation_runs(dummy_results):
 
 
 def test_autocorrelation_species_selection(dummy_results):
-    lags, autocorrs = autocorrelation(dummy_results, species='sin')
+    _lags, autocorrs = autocorrelation(dummy_results, species='sin')
     assert autocorrs.shape[1] == 1
 
-    lags, autocorrs = autocorrelation(dummy_results, species=('sin', 'cos'))
+    _lags, autocorrs = autocorrelation(dummy_results, species=('sin', 'cos'))
     assert autocorrs.shape[1] == 2
 
 
 def test_autocorrelation_constant_signal(dummy_results):
-    lags, autocorrs = autocorrelation(dummy_results, species='const')
+    _lags, autocorrs = autocorrelation(dummy_results, species='const')
     # Autocorrelation of a constant signal should be close to 0
     assert jnp.allclose(autocorrs[:, 0], 0.0, atol=1e-6)
 
@@ -61,7 +61,7 @@ def test_cross_correlation_runs(dummy_results):
 
 def test_cross_correlation_with_self(dummy_results):
     lags_cross, cross_corrs = cross_correlation(dummy_results, 'sin', 'sin')
-    lags_auto, auto_corrs = autocorrelation(dummy_results, species='sin')
+    _lags_auto, auto_corrs = autocorrelation(dummy_results, species='sin')
 
     # cross-correlation gives for negative and positive lags
     # autocorrelation gives only for positive lags

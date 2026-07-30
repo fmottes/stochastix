@@ -163,14 +163,14 @@ def _make_batched_results_for_time_tests() -> SimulationResults:
 @pytest.mark.parametrize('t_scalar', [2, np.int32(2), jnp.int32(2)])
 def test_state_mutual_info_integral_timestamps_warn_and_match_float_time(t_scalar):
     results = _make_batched_results_for_time_tests()
-    kwargs = dict(
-        n_grid_points1=4,
-        n_grid_points2=4,
-        min_max_vals1=(0.0, 13.0),
-        min_max_vals2=(0.0, 13.0),
-        dirichlet_alpha=0.1,
-        dirichlet_kappa=None,
-    )
+    kwargs = {
+        'n_grid_points1': 4,
+        'n_grid_points2': 4,
+        'min_max_vals1': (0.0, 13.0),
+        'min_max_vals2': (0.0, 13.0),
+        'dirichlet_alpha': 0.1,
+        'dirichlet_kappa': None,
+    }
     with pytest.warns(FutureWarning):
         mi_int = state_mutual_info(
             results, [('A', t_scalar), ('A', t_scalar)], **kwargs
@@ -181,14 +181,14 @@ def test_state_mutual_info_integral_timestamps_warn_and_match_float_time(t_scala
 
 def test_state_mutual_info_uses_time_not_index_for_integral_timestamps():
     results = _make_batched_results_for_time_tests()
-    kwargs = dict(
-        n_grid_points1=4,
-        n_grid_points2=4,
-        min_max_vals1=(0.0, 13.0),
-        min_max_vals2=(0.0, 13.0),
-        dirichlet_alpha=0.1,
-        dirichlet_kappa=None,
-    )
+    kwargs = {
+        'n_grid_points1': 4,
+        'n_grid_points2': 4,
+        'min_max_vals1': (0.0, 13.0),
+        'min_max_vals2': (0.0, 13.0),
+        'dirichlet_alpha': 0.1,
+        'dirichlet_kappa': None,
+    }
     mi_index_like = state_mutual_info(results, [('A', 2.0), ('A', 2.0)], **kwargs)
     mi_real_time = state_mutual_info(results, [('A', 10.0), ('A', 10.0)], **kwargs)
     assert not jnp.isclose(mi_index_like, mi_real_time)

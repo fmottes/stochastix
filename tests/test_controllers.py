@@ -99,7 +99,7 @@ def test_timer_multiple_triggers():
     assert jnp.array_equal(new_step_result.x_new, jnp.array([10, 10]))
     assert new_step_result.dt == pytest.approx(1.0 - t)
 
-    trigger_idx, next_trigger_time, species_idx = new_state
+    trigger_idx, next_trigger_time, _species_idx = new_state
     assert trigger_idx == 1
     assert next_trigger_time == 2.0
 
@@ -114,7 +114,7 @@ def test_timer_multiple_triggers():
     assert jnp.array_equal(new_step_result.x_new, jnp.array([20, 20]))
     assert new_step_result.dt == pytest.approx(2.0 - t)
 
-    trigger_idx, next_trigger_time, species_idx = new_state
+    trigger_idx, next_trigger_time, _species_idx = new_state
     assert trigger_idx == 2
     assert next_trigger_time == jnp.inf
 
@@ -145,6 +145,6 @@ def test_timer_no_trigger():
     assert jnp.array_equal(new_step_result.propensities, a)
     assert new_step_result.reaction_idx == r
 
-    trigger_idx, next_trigger_time, species_idx = new_state
+    trigger_idx, next_trigger_time, _species_idx = new_state
     assert trigger_idx == 0
     assert next_trigger_time == 1.0

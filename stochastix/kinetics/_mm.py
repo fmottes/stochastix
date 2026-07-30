@@ -45,8 +45,8 @@ class MichaelisMenten(AbstractKinetics):
         enzyme: str | float,
         k_cat: float,
         k_m: float,
-        transform_k_cat: Callable = None,
-        transform_k_m: Callable = None,
+        transform_k_cat: Callable | None = None,
+        transform_k_m: Callable | None = None,
         *,
         _enzyme_idx: int = -1,
     ):

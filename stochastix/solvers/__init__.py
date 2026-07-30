@@ -13,12 +13,12 @@ from ._exact import (
 )
 
 __all__ = [
-    'AbstractStochasticSolver',
-    'SimulationStep',
-    'DirectMethod',
-    'FirstReactionMethod',
-    'TauLeaping',
     'DGA',
+    'AbstractStochasticSolver',
     'DifferentiableDirect',
     'DifferentiableFirstReaction',
+    'DirectMethod',
+    'FirstReactionMethod',
+    'SimulationStep',
+    'TauLeaping',
 ]

@@ -51,7 +51,7 @@ class Timer(AbstractController):
                 the order of species names in `controlled_species`.
 
         Raises:
-            ValueError: If `controlled_species` is not a string, list, or tuple.
+            TypeError: If `controlled_species` is not a string, list, or tuple.
             ValueError: If the number of time triggers does not match the number
                 of species count updates.
             ValueError: If the number of controlled species does not match the
@@ -64,7 +64,7 @@ class Timer(AbstractController):
         elif isinstance(controlled_species, tuple):
             _controlled_species = controlled_species
         else:
-            raise ValueError(
+            raise TypeError(
                 '`controlled_species` must be a string, a list or a tuple of strings of species names'
             )
 

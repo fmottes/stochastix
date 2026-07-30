@@ -13,8 +13,8 @@ from stochastix.kinetics import MassAction
 
 # Define a simple network
 reactions = [
-    Reaction("0 -> A", MassAction(0.5), name="A_prod"),
-    Reaction("A -> 0", MassAction(0.1), name="A_deg"),
+    Reaction('0 -> A', MassAction(0.5), name='A_prod'),
+    Reaction('A -> 0', MassAction(0.1), name='A_deg'),
 ]
 network = ReactionNetwork(reactions)
 
@@ -23,7 +23,9 @@ key = jax.random.PRNGKey(0)
 x0 = jnp.array([0.0])  # or: {"A": 0.0}
 
 results = stx.stochsimsolve(
-    key, network, x0,
+    key,
+    network,
+    x0,
     T=100.0,
     solver=stx.DirectMethod(),
     max_steps=int(1e5),
@@ -46,7 +48,10 @@ Notes:
 
 ```python
 from stochastix import TauLeaping
-results_tau = stx.stochsimsolve(key, network, x0, T=100.0, solver=TauLeaping(epsilon=0.03))
+
+results_tau = stx.stochsimsolve(
+    key, network, x0, T=100.0, solver=TauLeaping(epsilon=0.03)
+)
 ```
 
 ## Controllers
@@ -57,12 +62,14 @@ from stochastix.controllers import Timer
 
 # At t=50, set A to 100 molecules
 controller = Timer(
-    controlled_species="A",
+    controlled_species='A',
     time_triggers=jnp.array([50.0]),
     species_at_triggers=jnp.array([[100.0]]),
 )
 
-results_ctrl = stx.stochsimsolve(key, network, x0, T=100.0, solver=stx.DirectMethod(), controller=controller)
+results_ctrl = stx.stochsimsolve(
+    key, network, x0, T=100.0, solver=stx.DirectMethod(), controller=controller
+)
 ```
 
 The controller sets `reaction_idx = -2` on trigger steps to distinguish them from padded steps (`-1`).
@@ -73,7 +80,7 @@ The controller sets `reaction_idx = -2` on trigger steps to distinguish them fro
 import equinox as eqx
 
 key, *subkeys = jax.random.split(key, 33)
-subkeys = jnp.array(subkeys) # shape (32,)
+subkeys = jnp.array(subkeys)  # shape (32,)
 
 vmapped_sim = eqx.filter_vmap(stx.stochsimsolve, in_axes=(0, None, None, None, None))
 
@@ -103,7 +110,7 @@ t = interp.t
 ## Plotting trajectories
 
 ```python
-fig, ax = stx.plot_abundance_dynamic(results, species="A")
+fig, ax = stx.plot_abundance_dynamic(results, species='A')
 plt.show()
 ```
 
@@ -113,7 +120,9 @@ For batched results, multiple trajectories are plotted with the same color. Use 
 
 ```python
 # Stochastic wrapper (SSA)
-ssa_model = stx.StochasticModel(network=network, solver=stx.DirectMethod(), T=100.0, max_steps=int(1e5))
+ssa_model = stx.StochasticModel(
+    network=network, solver=stx.DirectMethod(), T=100.0, max_steps=int(1e5)
+)
 ssa_results = ssa_model(key, x0)
 
 # Deterministic ODE wrapper (diffrax)
