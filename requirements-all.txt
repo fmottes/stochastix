@@ -265,7 +265,7 @@ pyzmq==27.1.0
     #   jupyter-client
 requests==2.34.2
     # via mkdocs-material
-ruff==0.15.20
+ruff==0.14.13
     # via
     #   stochastix (pyproject.toml:dev)
     #   stochastix (pyproject.toml:docs)

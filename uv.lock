@@ -2518,7 +2518,7 @@ dev = [
     { name = "pre-commit", specifier = ">=4.2.0" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-cov", specifier = ">=6.2.1" },
-    { name = "ruff", specifier = ">=0.14.13" },
+    { name = "ruff", specifier = "==0.14.13" },
 ]
 docs = [
     { name = "hippogriffe", specifier = ">=0.2.2" },
@@ -2527,7 +2527,7 @@ docs = [
     { name = "mkdocs-material", specifier = ">=9.6.14" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.29.1" },
     { name = "pymdown-extensions", specifier = ">=10.16" },
-    { name = "ruff", specifier = ">=0.12.7" },
+    { name = "ruff", specifier = "==0.14.13" },
 ]
 
 [[package]]
