@@ -1,5 +1,6 @@
 """Data analysis functions for simulation results."""
 
+from . import thermo
 from .corr import autocorrelation, cross_correlation
 from .entropy import entropy, state_entropy
 from .hist import state_kde
@@ -31,4 +32,5 @@ __all__ = [
     'state_entropy',
     'state_kde',
     'state_mutual_info',
+    'thermo',
 ]

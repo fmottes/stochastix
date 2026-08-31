@@ -47,6 +47,7 @@ nav:
     - Systems: 'api/systems.md'
     - Generators: 'api/generators.md'
     - Analysis: 'api/analysis.md'
+    - Stochastic Thermodynamics: 'api/thermo.md'
 
     - Utilities:
       - Optimization: 'api/utils/optimization.md'

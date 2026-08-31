@@ -24,6 +24,58 @@ if TYPE_CHECKING:
     from .._stochsimsolve import SimulationResults
 
 
+def _compute_reverse_pairing(
+    reactant_matrix: list[list[int | float]],
+    product_matrix: list[list[int | float]],
+    n_reactions: int,
+) -> tuple[int, ...]:
+    """Pair each reaction with its reverse channel by stoichiometric signature.
+
+    A reaction's reverse has its reactants and products swapped. This function
+    matches each reaction to a reverse counterpart using a hash map of
+    ``(reactants, products)`` signatures, so the pairing is `O(n_reactions)`.
+    Pairing is mutual and greedy in index order: unmatched reactions and
+    self-reverse reactions (a reaction whose signature equals its own swap)
+    map to ``-1``.
+
+    Args:
+        reactant_matrix: Reactant coefficients, shape `(n_species, n_reactions)`.
+        product_matrix: Product coefficients, shape `(n_species, n_reactions)`.
+        n_reactions: The number of reactions.
+
+    Returns:
+        A tuple of length `n_reactions` where entry `i` is the index of the
+        reverse reaction of reaction `i`, or `-1` if it has none.
+    """
+    n_species = len(reactant_matrix)
+
+    signatures: dict[tuple, list[int]] = {}
+    signature_list: list[tuple] = []
+    for i in range(n_reactions):
+        reactants_sig = tuple(reactant_matrix[s][i] for s in range(n_species))
+        products_sig = tuple(product_matrix[s][i] for s in range(n_species))
+        signature = (reactants_sig, products_sig)
+        signature_list.append(signature)
+        signatures.setdefault(signature, []).append(i)
+
+    reverse = [-1] * n_reactions
+    processed: set[int] = set()
+    for i in range(n_reactions):
+        if i in processed:
+            continue
+        reactants_sig, products_sig = signature_list[i]
+        reverse_signature = (products_sig, reactants_sig)  # swap reactants/products
+        for candidate in signatures.get(reverse_signature, ()):
+            if candidate != i and candidate not in processed:
+                reverse[i] = candidate
+                reverse[candidate] = i
+                processed.add(candidate)
+                break
+        processed.add(i)
+
+    return tuple(reverse)
+
+
 class ReactionNetwork(eqx.Module):
     """A network of chemical reactions for simulation.
 
@@ -51,6 +103,11 @@ class ReactionNetwork(eqx.Module):
             Shape: `(n_species, n_reactions)`.
         n_reactions: The number of reactions in the network.
         n_species: The number of species in the network.
+        reverse_reaction_index: For each reaction, the index of its reverse
+            channel (reactants and products swapped), or `-1` if it has none.
+            Used by stochastic-thermodynamics observables.
+        has_reverse_channels: Whether every reaction has a structurally matched
+            reverse channel (a requirement for finite pathwise entropy production).
 
     Methods:
         propensity_fn: Computes the propensity vector for the network.
@@ -82,6 +139,7 @@ class ReactionNetwork(eqx.Module):
     _named_reactions: dict = eqx.field(static=True)
     _all_mass_action: bool = eqx.field(static=True)
     _massaction_fast_low_order2: bool = eqx.field(static=True)
+    _reverse_reaction_index: tuple[int, ...] = eqx.field(static=True)
 
     def __init__(self, reactions: Iterable[Reaction], volume: float = 1.0):
         """Initializes the ReactionNetwork.
@@ -165,6 +223,11 @@ class ReactionNetwork(eqx.Module):
             ]
             for s_idx in range(self.n_species)
         ]
+
+        # Pair each reaction with its reverse channel (used by thermodynamics).
+        self._reverse_reaction_index = _compute_reverse_pairing(
+            reactant_matrix, product_matrix, self.n_reactions
+        )
 
         # Create a lightweight dictionary of named substeps with indices
         self._named_reactions = {}
@@ -486,7 +549,12 @@ class ReactionNetwork(eqx.Module):
 
     # --- Likelihood computation ---
 
-    def log_prob(self, sim_results: SimulationResults) -> jnp.ndarray:
+    def log_prob(
+        self,
+        sim_results: SimulationResults,
+        *,
+        use_stored_propensities: bool = False,
+    ) -> jnp.ndarray:
         """Calculates the log-probability of a simulation trajectory.
 
         This method computes the log-likelihood of a given trajectory produced
@@ -496,16 +564,27 @@ class ReactionNetwork(eqx.Module):
 
         Args:
             sim_results: A `SimulationResults` object containing the trajectory.
+            use_stored_propensities: If ``True``, reuse the propensities stored
+                in ``sim_results.propensities`` instead of recomputing them
+                (faster; requires ``save_propensities=True``). Defaults to
+                ``False``.
 
         Returns:
             Log-probability terms, one for each step in the trajectory.
         """
         # Recompute propensities to build the JAX computation graph for gradients.
         # We operate on x[:-1] because the last state has no subsequent reaction.
-
-        x = pytree_to_state(sim_results.x, self.species)
-        t = sim_results.t
-        propensities = jax.vmap(self.propensity_fn)(x[:-1], t[:-1])
+        if use_stored_propensities:
+            if sim_results.propensities is None:
+                raise ValueError(
+                    'use_stored_propensities=True requires results produced with '
+                    'save_propensities=True, but sim_results.propensities is None.'
+                )
+            propensities = sim_results.propensities
+        else:
+            x = pytree_to_state(sim_results.x, self.species)
+            t = sim_results.t
+            propensities = jax.vmap(self.propensity_fn)(x[:-1], t[:-1])
 
         reactions = sim_results.reactions
         is_valid_reaction = reactions >= 0
@@ -540,6 +619,46 @@ class ReactionNetwork(eqx.Module):
         tau = jax.lax.stop_gradient(jnp.diff(sim_results.t))
 
         return log_a_selected - tau * a0 * is_valid_reaction
+
+    # --- Thermodynamic structure ---
+
+    @property
+    def reverse_reaction_index(self) -> jax.Array:
+        """The reverse channel index of each reaction, or `-1` if it has none.
+
+        Entry `i` is the index of the reaction whose reactants and products are
+        the swap of reaction `i`'s (its reverse), or `-1` if no such reaction
+        exists in the network. This pairing is a structural property of the
+        network (it depends only on stoichiometry, not on rate constants) and is
+        precomputed once at construction, so it is free to use inside jitted or
+        traced code.
+
+        Returns:
+            An integer array of shape `(n_reactions,)`.
+        """
+        return jnp.asarray(self._reverse_reaction_index, dtype=int)
+
+    @property
+    def has_reverse_channels(self) -> bool:
+        """Whether every reaction has a structurally matched reverse channel.
+
+        A reverse channel for every reaction is necessary, but not sufficient,
+        for finite entropy production and affinities: the reverse propensity
+        must also be positive on traversed edges. This is only a static
+        structural check; it does not establish local detailed balance or
+        thermodynamic consistency of the rates.
+        """
+        return all(j >= 0 for j in self._reverse_reaction_index)
+
+    def _reactions_missing_reverse(self) -> list[str]:
+        """List reactions that lack a reverse channel, for error messages."""
+        index_to_name = {i: name for name, i in self._named_reactions.items()}
+        missing = []
+        for i, reverse_j in enumerate(self._reverse_reaction_index):
+            if reverse_j < 0:
+                name = index_to_name.get(i, f'r{i}')
+                missing.append(f'{name} ({self.reactions[i].reaction_string})')
+        return missing
 
     # --- Utility methods ---
 
@@ -730,41 +849,15 @@ class ReactionNetwork(eqx.Module):
             side_str = ' + '.join(parts)
             return side_str if side_str else r'\emptyset'
 
-        # O(n) optimization: Build a hash map of reaction signatures to indices
-        # This avoids the O(n²) nested loop for finding reverse reactions
-        reaction_signatures = {}
-        for i in range(n_reactions):
-            # Create a signature tuple: (reactants_tuple, products_tuple)
-            # .tolist() converts from JAX array to python list, then tuple() makes it hashable.
-            reactants_sig = tuple(reactant_matrix[:, i].tolist())
-            products_sig = tuple(product_matrix[:, i].tolist())
-            signature = (reactants_sig, products_sig)
+        # Reuse the precomputed forward/reverse pairing (see _compute_reverse_pairing).
+        reverse_pairing = self._reverse_reaction_index
 
-            if signature not in reaction_signatures:
-                reaction_signatures[signature] = []
-            reaction_signatures[signature].append(i)
-
-        # Process reactions, looking for reverse pairs using the hash map
+        # Process reactions, pairing each with its reverse for reversible display.
         for i in range(n_reactions):
             if i in processed_indices:
                 continue
 
-            # Look for reverse reaction using hash map lookup (O(1))
-            # .tolist() converts from JAX array to python list, then tuple() makes it hashable.
-            reactants_sig = tuple(reactant_matrix[:, i].tolist())
-            products_sig = tuple(product_matrix[:, i].tolist())
-            reverse_signature = (
-                products_sig,
-                reactants_sig,
-            )  # Swap reactants and products
-
-            reverse_j = -1
-            if reverse_signature in reaction_signatures:
-                # Find a reverse reaction that hasn't been processed yet
-                for candidate_j in reaction_signatures[reverse_signature]:
-                    if candidate_j != i and candidate_j not in processed_indices:
-                        reverse_j = candidate_j
-                        break
+            reverse_j = reverse_pairing[i]
 
             reactants = _format_side_latex(reactant_matrix[:, i], self.species)
             products = _format_side_latex(product_matrix[:, i], self.species)
