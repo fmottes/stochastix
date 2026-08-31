@@ -156,10 +156,9 @@ class SimulationResults(eqx.Module):
         but not used because the simulation terminated early (e.g., reached the
         final time or ran out of reactants).
 
-        It identifies unused steps by checking for negative reaction indices, which
-        are used as padding values by the solvers. It correctly handles results
-        from both exact solvers (where `reactions` is 1D) and approximate solvers
-        (where `reactions` is 2D).
+        Time-advancing steps are preserved even when no reaction occurs; only trailing
+        zero-duration padding is removed. Exact results may therefore end with `-1`,
+        and approximate results may retain zero-count steps.
 
         Returns:
             SimulationResults: A new container with only the valid steps of the simulation trajectory.
@@ -203,14 +202,18 @@ class SimulationResults(eqx.Module):
                 'trajectory from a batch, first select it using indexing. For example: '
                 '`cleaned_result = batched_results[0].clean()`'
             )
+        dt = jnp.diff(self.t)
+
         # Handle both exact solvers (1D reactions) and approximate solvers (2D reactions)
         if self.reactions.ndim == 1:
-            # Exact solver: reactions is 1D array of reaction indices
-            mask = self.reactions >= 0
+            # A negative index denotes either the censored terminal interval or padding.
+            # The former advances time; the latter does not.
+            mask = (self.reactions >= 0) | (dt > 0)
         else:
-            # Approximate solver (e.g., TauLeapingSolver): reactions is 2D array of reaction counts
-            # Keep steps where at least one reaction occurred (any count >= 0)
-            mask = jnp.any(self.reactions >= 0, axis=-1)
+            # Approximate solvers store non-negative reaction counts, so padding cannot
+            # be identified by sign. Preserve both time-advancing zero-reaction leaps
+            # and any step in which a reaction occurred.
+            mask = jnp.any(self.reactions != 0, axis=-1) | (dt > 0)
 
         if is_pytree:
             clean_leaf = lambda leaf: jnp.hstack([leaf[0], leaf[1:][mask]])

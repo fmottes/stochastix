@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import pytest
 
 from stochastix import (
+    TauLeaping,
     faststochsimsolve,
     pytree_to_state,
     state_to_pytree,
@@ -33,6 +34,39 @@ def test_array_input_smoke(simple_network):
     assert isinstance(res.x, jnp.ndarray)
     assert res.x.shape[1] == 2
     assert jnp.allclose(res.x[0], jnp.array([10.0, 20.0]))
+
+
+def test_clean_preserves_exact_solver_terminal_time(simple_network):
+    key = jax.random.PRNGKey(15)
+    res = stochsimsolve(key, simple_network, jnp.array([10, 20]), T=0.5, max_steps=32)
+
+    cleaned = res.clean()
+
+    assert cleaned.t[-1] == pytest.approx(0.5)
+    assert cleaned.reactions[-1] == -1
+    assert jnp.sum(cleaned.reactions < 0) == 1
+    assert cleaned.x.shape[0] == cleaned.reactions.shape[0] + 1
+    assert jnp.all(jnp.diff(cleaned.t) > 0)
+
+
+def test_clean_removes_tau_leaping_zero_count_padding():
+    network = ReactionNetwork([Reaction('0 -> A', MassAction(k=1.0))])
+    res = stochsimsolve(
+        jax.random.PRNGKey(16),
+        network,
+        jnp.array([0]),
+        T=0.5,
+        max_steps=8,
+        solver=TauLeaping(),
+    )
+
+    cleaned = res.clean()
+
+    assert cleaned.t.shape == (2,)
+    assert cleaned.t[-1] == pytest.approx(0.5)
+    assert cleaned.reactions.shape == (1, 1)
+    assert jnp.all(cleaned.reactions == 0)
+    assert cleaned.x.shape[0] == cleaned.reactions.shape[0] + 1
 
 
 class SpeciesContainer(eqx.Module):
