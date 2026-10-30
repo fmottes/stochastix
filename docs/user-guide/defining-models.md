@@ -120,7 +120,7 @@ log_terms = network.log_prob(results)
 total_logp = log_terms.sum()
 ```
 
-`log_prob` is defined for trajectories from exact solvers (e.g., `DirectMethod`, `FirstReactionMethod`). It recomputes propensities internally and masks padded steps, you can sum the terms to obtain a scalar log-likelihood.
+`log_prob` is defined for trajectories from exact solvers (e.g., `DirectMethod`, `FirstReactionMethod`) with propensities constant between events. It recomputes propensities internally and includes the final no-event interval before readout. Zero-duration padding contributes zero. If `time_overflow` is true, this covers only the recorded trajectory, not the full requested time horizon.
 
 
 **Other features:**

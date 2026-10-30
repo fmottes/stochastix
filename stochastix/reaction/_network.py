@@ -486,26 +486,45 @@ class ReactionNetwork(eqx.Module):
 
     # --- Likelihood computation ---
 
-    def log_prob(self, sim_results: SimulationResults) -> jnp.ndarray:
+    def log_prob(self, sim_results: SimulationResults) -> jax.Array:
         """Calculates the log-probability of a simulation trajectory.
 
         This method computes the log-likelihood of a given trajectory produced
         by an exact stochastic simulation algorithm (e.g., Gillespie Direct Method). It
         recomputes the propensities at each step of the trajectory to ensure
         that the computation graph is connected for gradient-based optimization.
+        Each interval contributes minus its duration times the total propensity,
+        including the final no-event interval before readout. Only intervals
+        ending in a reaction also contribute the log of that channel's propensity.
+        Zero-duration padding contributes zero.
+
+        Propensities are assumed constant between events. If the simulation
+        reaches ``max_steps`` before readout, the likelihood covers only the
+        recorded trajectory, up to its last time point.
 
         Args:
             sim_results: A `SimulationResults` object containing the trajectory.
 
         Returns:
-            Log-probability terms, one for each step in the trajectory.
+            Log-probability terms, one for each interval in the trajectory.
+
+        Raises:
+            ValueError: If reaction information is missing or contains reaction
+                counts instead of exact reaction indices.
         """
+        if sim_results.reactions is None or sim_results.reactions.ndim != 1:
+            raise ValueError(
+                'log_prob requires a full trajectory with exact reaction indices. '
+                'Use an exact solver with save_trajectory=True, and select a '
+                'single trajectory or vmap log_prob over a batch.'
+            )
+
         # Recompute propensities to build the JAX computation graph for gradients.
-        # We operate on x[:-1] because the last state has no subsequent reaction.
+        # Each interval uses its left-endpoint state, including the terminal one.
 
         x = pytree_to_state(sim_results.x, self.species)
         t = sim_results.t
-        propensities = jax.vmap(self.propensity_fn)(x[:-1], t[:-1])
+        propensities = eqx.filter_vmap(self.propensity_fn)(x[:-1], t[:-1])
 
         reactions = sim_results.reactions
         is_valid_reaction = reactions >= 0
@@ -535,11 +554,11 @@ class ReactionNetwork(eqx.Module):
             )
         )
 
-        # Calculate the second term of the log-likelihood: `tau * a0`.
-        # Mask out invalid steps by multiplying by the boolean mask.
+        # Survival applies even when no reaction occurs. Padding already has
+        # zero duration, so only the log-channel term needs the reaction mask.
         tau = jax.lax.stop_gradient(jnp.diff(sim_results.t))
 
-        return log_a_selected - tau * a0 * is_valid_reaction
+        return log_a_selected - tau * a0
 
     # --- Utility methods ---
 
