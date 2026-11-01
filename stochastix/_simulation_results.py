@@ -6,8 +6,64 @@ import typing
 import warnings
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+
+
+def _time_kernel_weights(results, t_interp, bandwidth):
+    """Return zero-valued weights carrying logistic event-time gradients."""
+    if results.reactions is None:
+        raise ValueError(
+            'Time kernels require a full saved trajectory (save_trajectory=True).'
+        )
+
+    # t includes the initial state; propensities belong to intervals ending at t[1:].
+    times = results.t[1:]
+    valid = jnp.isfinite(times) & jnp.isfinite(results.t[:-1])
+    if results.reactions.ndim == 1:
+        valid = valid & (results.reactions >= 0)
+    else:
+        valid = valid & (times > results.t[:-1])
+
+    if isinstance(bandwidth, str):
+        if bandwidth != 'adaptive':
+            raise ValueError("time_kernel_bw must be non-negative or 'adaptive'.")
+        if results.propensities is None:
+            raise ValueError(
+                "time_kernel_bw='adaptive' requires saved per-step propensities "
+                '(save_propensities=True).'
+            )
+        if results.propensities.shape[:-1] != times.shape:
+            raise ValueError(
+                'Adaptive time kernels require one propensity vector per event interval.'
+            )
+        rate = jax.lax.stop_gradient(results.propensities.sum(axis=-1))
+        valid = valid & jnp.isfinite(rate) & (rate > 0)
+        # Evaluate u/h as u*a0 without forming an extreme reciprocal width.
+        scale = jnp.where(valid, rate, 0.0)
+    else:
+        bandwidth = jnp.asarray(bandwidth)
+        if bandwidth.ndim != 0:
+            raise ValueError('time_kernel_bw must be a scalar.')
+        bandwidth = eqx.error_if(
+            bandwidth,
+            ~jnp.isfinite(bandwidth) | (bandwidth < 0),
+            'time_kernel_bw must be finite and non-negative.',
+        )
+        bandwidth = jax.lax.stop_gradient(bandwidth)
+        valid = valid & (bandwidth > 0)
+
+    # Mask before arithmetic, not just afterwards, to avoid NaNs in autodiff.
+    times = jnp.where(valid, times, 0.0)
+    offset = jnp.where(valid[None, :], t_interp[:, None] - times[None, :], 0.0)
+    logits = (
+        offset * scale
+        if isinstance(bandwidth, str)
+        else offset / jnp.where(bandwidth > 0, bandwidth, 1.0)
+    )
+    weights = jnp.where(valid[None, :], jax.nn.sigmoid(logits), 0.0)
+    return weights - jax.lax.stop_gradient(weights), valid
 
 
 class SimulationResults(eqx.Module):
@@ -227,7 +283,12 @@ class SimulationResults(eqx.Module):
 
         return SimulationResults(x_cleaned, t, a, r, self.time_overflow, self.species)
 
-    def interpolate(self, t_interp: jnp.ndarray) -> SimulationResults:
+    def interpolate(
+        self,
+        t_interp: jax.Array,
+        *,
+        time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 0,
+    ) -> SimulationResults:
         """Interpolates stochastic simulation results to new time points.
 
         This function performs a piecewise-constant (or "forward-fill") interpolation
@@ -238,6 +299,13 @@ class SimulationResults(eqx.Module):
             t_interp: A sorted array of time points at which to interpolate
                 the state. Values outside the simulation time range [self.t[0], self.t[-1]]
                 will be automatically clamped to the nearest boundary.
+            time_kernel_bw: Time-gradient estimator. Zero (default) keeps the
+                existing forward-fill gradients, with no event-time contribution.
+                A positive number adds a logistic time kernel with that fixed
+                width. 'adaptive' uses each event's inverse total pre-event
+                propensity and requires `save_propensities=True`. Bandwidths are
+                stop-gradiented. Forward values and state/choice gradients are
+                preserved. Both kernels require `save_trajectory=True`.
 
         Returns:
             SimulationResults: A new container with the interpolated state trajectory
@@ -246,12 +314,24 @@ class SimulationResults(eqx.Module):
                 `time_overflow` is also set to None, since interpolations do not exceed
                 the simulation time range.
 
-        Note:
+        Raises:
+            ValueError: If the bandwidth is invalid or required trajectory data
+                are missing or misaligned.
+
+        Note: JIT-compatibility
             This method is JIT-compatible. Time points outside the simulation range
             are automatically clamped to `[self.t[0], self.t[-1]]` to prevent
             out-of-bounds errors. Input validation should be performed before calling
             this method if strict bounds checking is required.
+
+        Note: Time kernels
+            Time kernels only smooth the trajectory times in the gradient pass, giving biased
+            surrogate gradients. Simulate beyond the last observation to include events
+            on both sides of its kernel; this is the caller's responsibility and is not
+            checked here.
         """
+        # Keep the default path unchanged and avoid allocating kernel weights.
+        use_kernel = eqx.is_array(time_kernel_bw) or time_kernel_bw != 0
 
         def _interpolate(results, t_interp):
             # Find the index of the last event for each interpolation time point (forward-fill).
@@ -259,11 +339,25 @@ class SimulationResults(eqx.Module):
             t_clamped = jnp.clip(t_interp, results.t[0], results.t[-1])
             indices = jnp.searchsorted(results.t, t_clamped, side='right') - 1
 
-            is_pytree_local = not isinstance(results.x, jnp.ndarray)
-            if is_pytree_local:
-                x_interp = jtu.tree_map(lambda leaf: leaf[indices], results.x)
-            else:
-                x_interp = results.x[indices]
+            weights = None
+            if use_kernel:
+                weights, valid = _time_kernel_weights(results, t_interp, time_kernel_bw)
+
+            def _read_leaf(leaf):
+                # Preserve static metadata in custom state PyTrees.
+                if not eqx.is_array(leaf) or leaf.ndim == 0:
+                    return leaf
+                observed = leaf[indices]
+                if weights is not None:
+                    mask = valid.reshape((valid.size,) + (1,) * (leaf.ndim - 1))
+                    increments = jnp.where(
+                        mask, jax.lax.stop_gradient(jnp.diff(leaf, axis=0)), 0.0
+                    )
+                    # Weights are exactly zero forward; only their gradients act.
+                    observed = observed + jnp.tensordot(weights, increments, axes=1)
+                return observed
+
+            x_interp = jtu.tree_map(_read_leaf, results.x)
 
             return SimulationResults(
                 x=x_interp,
@@ -274,12 +368,7 @@ class SimulationResults(eqx.Module):
                 species=results.species,
             )
 
-        is_pytree = not isinstance(self.x, jnp.ndarray)
-        if is_pytree:
-            first_leaf = jtu.tree_leaves(self.x)[0]
-            is_batched = first_leaf.ndim > 1
-        else:
-            is_batched = self.x.ndim > 2
+        is_batched = self.t.ndim > 1
 
         if is_batched:
             # vmap over batch dimension of self, t_interp is broadcast
