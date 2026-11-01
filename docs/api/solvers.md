@@ -20,6 +20,17 @@
 
 ## Pathwise Differentiable Solvers
 
+`DifferentiableDirect` uses STGS reaction gradients by default. To use ReinMax:
+
+```python
+solver = stochastix.DifferentiableDirect(reaction_grad='reinmax', logits_scale=1.0)
+```
+
+ReinMax requires `exact_fwd=True` (the default) and a finite `logits_scale >= 1`.
+The temperature changes the surrogate reaction-choice gradient; sampled reactions
+and waiting times remain exact. Waiting-time gradients are unchanged. Both STGS
+and ReinMax are biased gradient estimators.
+
 ---
 ::: stochastix.DifferentiableDirect
     options:

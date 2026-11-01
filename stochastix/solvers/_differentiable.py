@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import math
 import typing
 from typing import Any
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as rng
@@ -182,8 +184,24 @@ class DGA(AbstractStochasticSolver):
 #####################################################################################
 
 
+def _reinmax(logits: jax.Array, sample: jax.Array, temperature: float) -> jax.Array:
+    """Return a hard sample with ReinMax's surrogate derivative in logit space."""
+    probabilities = jax.nn.softmax(logits)
+    midpoint = jax.lax.stop_gradient(
+        (sample + jax.nn.softmax(logits / temperature)) / 2
+    )
+    # This perturbation is zero forward, with the logit derivative backward.
+    # Mask disabled reactions before subtraction to avoid -inf - (-inf).
+    finite_logits = jnp.where(jnp.isfinite(logits), logits, 0.0)
+    perturbation = finite_logits - jax.lax.stop_gradient(finite_logits)
+    weights = midpoint * jnp.exp(perturbation)
+    corrected = weights / jnp.sum(weights)
+    surrogate = 2 * corrected - probabilities / 2
+    return sample + (surrogate - jax.lax.stop_gradient(surrogate))
+
+
 class DifferentiableDirect(AbstractStochasticSolver):
-    """Pathwise differentiable Direct Method using the Straight-Through Gumbel-Softmax Gradient Estimator.
+    """Differentiable Direct Method with STGS or ReinMax reaction gradients.
 
     This solver implements the Direct Method in a form that is pathwise
     differentiable with respect to reaction parameters. Differentiation is
@@ -196,9 +214,10 @@ class DifferentiableDirect(AbstractStochasticSolver):
     - If `exact_fwd=False`, it uses a continuous relaxation of the reaction
         choice, making the forward pass approximate.
 
-    In both cases, the backward pass uses a continuous relaxation (softmax) to
-    enable gradient propagation, allowing for end-to-end training of stochastic
-    models with gradient-based optimization.
+    By default, reaction gradients use Straight-Through Gumbel-Softmax (STGS).
+    Set `reaction_grad='reinmax'` to use ReinMax instead, with `exact_fwd=True`.
+    This changes only the reaction-choice gradient; the sampled reactions and
+    reparameterized waiting times are unchanged. Both estimators are biased.
 
     Note: Zero-propensity gradients
         At each step, the selection relaxation has zero local derivative for
@@ -206,28 +225,55 @@ class DifferentiableDirect(AbstractStochasticSolver):
 
     Attributes:
         logits_scale: The temperature for the softmax relaxation.
+        reaction_grad: Reaction-choice gradient estimator, 'stgs' or 'reinmax'.
         is_exact_solver: Boolean flag indicating exactness based on exact_fwd.
         is_pathwise_differentiable: Boolean flag indicating differentiability.
 
     Methods:
         propensities: Calculate reaction propensities for the current state.
         step: Execute one step of the differentiable Direct Method.
+
+    References:
+        Liu et al. (2023). Bridging Discrete and Backpropagation:
+        Straight-Through and Beyond. https://arxiv.org/abs/2304.08612
     """
 
     logits_scale: float
+    reaction_grad: typing.Literal['stgs', 'reinmax'] = eqx.field(static=True)
 
-    def __init__(self, logits_scale: float = 1.0, exact_fwd: bool = True):
+    def __init__(
+        self,
+        logits_scale: float = 1.0,
+        exact_fwd: bool = True,
+        *,
+        reaction_grad: typing.Literal['stgs', 'reinmax'] = 'stgs',
+    ):
         """Initialize the DifferentiableDirect solver.
 
         Args:
-            logits_scale: The temperature parameter for the Gumbel-softmax
-                relaxation. Smaller values give a better approximation but may
-                have higher variance gradients. Defaults to 1.0.
+            logits_scale: Temperature for the reaction-choice gradient estimator.
+                For STGS, smaller values sharpen the relaxation but may increase
+                gradient variance. ReinMax requires a finite value >= 1; 1 gives
+                standard ReinMax. Defaults to 1.0.
             exact_fwd: If True, the forward pass is exact, using a straight-
                 through gradient estimator. If False, the forward pass is relaxed and approximate.
+            reaction_grad: Reaction-choice gradient estimator. ReinMax requires
+                `exact_fwd=True`. Defaults to 'stgs'.
+
+        Raises:
+            ValueError: If the estimator is unknown, or ReinMax is requested
+                with a relaxed forward pass or an invalid temperature.
         """
+        if reaction_grad not in ('stgs', 'reinmax'):
+            raise ValueError("reaction_grad must be 'stgs' or 'reinmax'")
+        if reaction_grad == 'reinmax':
+            if not exact_fwd:
+                raise ValueError('ReinMax requires exact_fwd=True')
+            if not math.isfinite(logits_scale) or logits_scale < 1:
+                raise ValueError('ReinMax requires a finite logits_scale >= 1')
         super().__init__(is_exact_solver=exact_fwd, is_pathwise_differentiable=True)
         self.logits_scale = logits_scale
+        self.reaction_grad = reaction_grad
 
     def propensities(self, network, x, t):
         """Calculate reaction propensities for the current state.
@@ -255,12 +301,12 @@ class DifferentiableDirect(AbstractStochasticSolver):
     def step(
         self,
         network: ReactionNetwork,
-        t: jnp.floating,
-        x: jnp.ndarray,
-        a: jnp.ndarray,
+        t: jax.Array,
+        x: jax.Array,
+        a: jax.Array,
         state,
         *,
-        key: jnp.ndarray,
+        key: jax.Array,
     ) -> tuple[SimulationStep, None]:
         """Execute one step of the differentiable Direct Method.
 
@@ -269,7 +315,7 @@ class DifferentiableDirect(AbstractStochasticSolver):
 
         1. The next reaction time is sampled from an exponential distribution.
         2. A reaction is sampled using Gumbel-perturbed propensities.
-        3. For the backward pass, a soft reaction selection is computed via softmax.
+        3. The backward pass uses STGS or ReinMax for reaction selection.
         4. If `exact_fwd=True`, the state is updated using the exact selection,
             but gradients are propagated through the soft selection via a
             straight-through estimator.
@@ -300,26 +346,31 @@ class DifferentiableDirect(AbstractStochasticSolver):
         safe_a = jnp.where(positive, a, jnp.ones_like(a))
         logits = jnp.where(positive, jnp.log(safe_a), -jnp.inf)
         perturbed_logits = logits + gumbels
+        r_hard = jnp.argmax(perturbed_logits)
 
-        p_gumbel = jax.nn.softmax(perturbed_logits / self.logits_scale)
+        if self.reaction_grad == 'reinmax':
+            sample = jax.nn.one_hot(r_hard, a.size, dtype=a.dtype)
+            reaction_weights = _reinmax(logits, sample, self.logits_scale)
+        else:
+            reaction_weights = jax.nn.softmax(perturbed_logits / self.logits_scale)
 
-        delta_x_soft = self._delta_x_soft(stoichiometry_matrix, p_gumbel)
+        delta_x_soft = self._delta_x_soft(stoichiometry_matrix, reaction_weights)
 
         if self.is_exact_solver:
             # Exact forward pass with straight-through estimator
-            # sample reaction via Gumbel-max trick
-            r_hard = jnp.argmax(perturbed_logits)
             reaction_idx = r_hard
 
             # compute delta_x for the exact forward pass
             delta_x_hard = self._delta_x(stoichiometry_matrix, r_hard)
-            delta_x = jax.lax.stop_gradient(delta_x_hard - delta_x_soft) + delta_x_soft
+            delta_x = jax.lax.stop_gradient(delta_x_hard) + (
+                delta_x_soft - jax.lax.stop_gradient(delta_x_soft)
+            )
 
             x_new = x + delta_x
         else:
             # Soft forward pass (inexact)
             x_new = x + delta_x_soft
-            reaction_idx = p_gumbel
+            reaction_idx = reaction_weights
 
         step_result = SimulationStep(
             x_new=x_new,
