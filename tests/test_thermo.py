@@ -258,6 +258,51 @@ def test_entropy_production_per_step_sums_to_total():
 # --------------------------------------------------------------------------- #
 # Currents and affinities
 # --------------------------------------------------------------------------- #
+def test_reaction_current_gradient_with_saved_weights():
+    keys = jax.random.split(jax.random.key(4), 32)
+
+    def loss(theta):
+        network = stx.ReactionNetwork(
+            [
+                stx.Reaction('0 -> A', stx.kinetics.MassAction(theta, jnp.exp)),
+                stx.Reaction('A -> 0', stx.kinetics.MassAction(1.0)),
+            ]
+        )
+        solver = stx.DifferentiableDirect(reaction_grad='reinmax')
+        results = eqx.filter_vmap(
+            lambda key: stx.stochsimsolve(
+                key,
+                network,
+                jnp.array([1.0]),
+                T=100.0,
+                max_steps=1,
+                solver=solver,
+                save_reaction_weights=True,
+            )
+        )(keys)
+        currents = eqx.filter_vmap(
+            lambda result: thermo.reaction_currents(
+                network, result, normalize_by_time=False
+            )
+        )(results)
+        birth = results.reactions[:, 0] == 0
+        # At theta = log(2), integrate the conditional derivatives over both
+        # outcomes using the exact probabilities, held fixed in this gradient.
+        mean = (2 / 3) * jnp.where(birth, currents[:, 0], 0.0).sum() / birth.sum()
+        mean += (1 / 3) * jnp.where(birth, 0.0, currents[:, 0]).sum() / (~birth).sum()
+        return mean, (currents, birth)
+
+    (value, (currents, birth)), grad = eqx.filter_jit(
+        eqx.filter_value_and_grad(loss, has_aux=True)
+    )(jnp.log(2.0))
+    assert birth.any() and (~birth).any()
+    assert jnp.array_equal(currents[:, 0], jnp.where(birth, 1, -1))
+    assert jnp.array_equal(currents[:, 0], -currents[:, 1])
+    assert value == pytest.approx(1 / 3)
+    # The exact one-event mean is 2 * sigmoid(theta) - 1.
+    assert grad == pytest.approx(4 / 9, abs=1e-6)
+
+
 def test_reaction_currents_are_antisymmetric_across_pairs():
     net = _driven_cycle()
     x0 = jnp.array([100.0, 100.0, 100.0])

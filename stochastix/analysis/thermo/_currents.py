@@ -163,17 +163,16 @@ def reaction_currents(
     count.
 
     Note: Differentiability
-        Firing counts are discrete, so this quantity is piecewise-constant in
-        the rate parameters. Gradients require a pathwise-differentiable solver
-        (e.g. `DifferentiableDirect`) or a score-function estimator built from
-        `ReactionNetwork.log_prob`. `affinities` and `entropy_production`, by
-        contrast, are smooth in the rate parameters.
+        With `save_reaction_weights=True` in `stochsimsolve`, the forward
+        counts remain exact and the backward pass uses the solver's
+        surrogate derivative through reaction choice. Without saved weights,
+        counts come from integer reaction indices and carry no gradient.
 
     Args:
         network: The reaction network that generated the trajectory.
         results: A single (non-batched) trajectory `SimulationResults`.
         normalize_by_time: If ``True`` (default), divide counts by the total
-            simulated time to give a rate; otherwise return net integer counts.
+            simulated time to give a rate; otherwise return net counts.
 
     Returns:
         The per-channel net current, shape ``(n_reactions,)``.
@@ -182,10 +181,11 @@ def reaction_currents(
 
     reactions = results.reactions
     mask = reactions >= 0
-    channels = jnp.arange(network.n_reactions)
-
-    # Firing count per channel over valid steps.
-    fired = (reactions[:, None] == channels[None, :]) & mask[:, None]
+    if results.reaction_weights is None:
+        channels = jnp.arange(network.n_reactions)
+        fired = (reactions[:, None] == channels[None, :]) & mask[:, None]
+    else:
+        fired = jnp.where(mask[:, None], results.reaction_weights, 0.0)
     counts = jnp.sum(fired, axis=0)
 
     reverse_index = network.reverse_reaction_index
