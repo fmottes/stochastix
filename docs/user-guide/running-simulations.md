@@ -107,6 +107,23 @@ x = interp.x  # (len(t_grid), n_species)
 t = interp.t
 ```
 
+Interpolation uses an **adaptive time-gradient kernel by default**, with one
+bandwidth per event equal to the inverse total pre-event propensity. Forward
+values are still exact forward-fill values; the backward pass adds biased
+surrogate gradients through event times. Bandwidths are stop-gradiented.
+Simulate beyond the last observation time to cover the kernel tails.
+
+The default requires a full saved trajectory with per-step propensities
+(`save_trajectory=True`, `save_propensities=True`). Disable the time kernel for
+trajectories without these fields, ODE results, or ordinary forward-fill gradients:
+
+```python
+interp = results.interpolate(t_grid, time_kernel_bw=0)
+```
+
+Kernel weights are evaluated in batches of at most 32 observation times and recomputed during the backward
+pass to bound temporary memory.
+
 ## Plotting trajectories
 
 ```python
