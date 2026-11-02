@@ -11,15 +11,16 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 
 _TIME_KERNEL_BATCH_SIZE = 32
+_TIME_KERNEL_HISTORY_ERROR = (
+    'Time kernels require a full saved trajectory (save_trajectory=True). '
+    'Pass time_kernel_bw=0 to use forward-fill without a time kernel.'
+)
 
 
 def _time_kernel_parameters(results, bandwidth):
     """Validate a trajectory and prepare masked event times and kernel scales."""
     if results.reactions is None:
-        raise ValueError(
-            'Time kernels require a full saved trajectory (save_trajectory=True). '
-            'Pass time_kernel_bw=0 to use forward-fill without a time kernel.'
-        )
+        raise ValueError(_TIME_KERNEL_HISTORY_ERROR)
 
     # t includes the initial state; propensities belong to intervals ending at t[1:].
     times = results.t[1:]
@@ -352,7 +353,12 @@ class SimulationResults(eqx.Module):
             memory instead of retaining an events-by-observations matrix.
         """
         # The explicit opt-out avoids all kernel work and trajectory requirements.
-        use_kernel = eqx.is_array(time_kernel_bw) or time_kernel_bw != 0
+        array_without_history = eqx.is_array(time_kernel_bw) and self.reactions is None
+        if array_without_history and time_kernel_bw.ndim != 0:
+            raise ValueError('time_kernel_bw must be a scalar.')
+        use_kernel = not array_without_history and (
+            eqx.is_array(time_kernel_bw) or time_kernel_bw != 0
+        )
 
         def _interpolate(results, t_interp):
             # Find the index of the last event for each interpolation time point (forward-fill).
@@ -400,6 +406,12 @@ class SimulationResults(eqx.Module):
                 if corrections is not None
                 else jtu.tree_map(_read_leaf, results.x)
             )
+            if array_without_history:
+                # The array's value may be traced. Require zero at runtime,
+                # checking the returned states so JIT cannot discard the guard.
+                x_interp = eqx.error_if(
+                    x_interp, time_kernel_bw != 0, _TIME_KERNEL_HISTORY_ERROR
+                )
 
             return SimulationResults(
                 x=x_interp,

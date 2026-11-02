@@ -78,7 +78,7 @@ def autocorrelation(
 
 
 @eqx.filter_jit
-def _cross_corr_1d(x1: jnp.ndarray, x2: jnp.ndarray) -> tuple[jnp.ndarray, int]:
+def _cross_corr_1d(x1: jax.Array, x2: jax.Array) -> tuple[jax.Array, int]:
     """JIT-compiled 1D cross-correlation."""
     n_timesteps = x1.shape[0]
     x1_norm = x1 - jnp.mean(x1)
@@ -89,8 +89,9 @@ def _cross_corr_1d(x1: jnp.ndarray, x2: jnp.ndarray) -> tuple[jnp.ndarray, int]:
     # More robust normalization
     norm1_sq = jnp.sum(x1_norm**2)
     norm2_sq = jnp.sum(x2_norm**2)
-    norm = jnp.sqrt(norm1_sq * norm2_sq)
-    norm = jnp.where(norm == 0, 1.0, norm)
+    norm_sq = norm1_sq * norm2_sq
+    # Guard before sqrt: masking sqrt(0) afterwards still gives NaN gradients.
+    norm = jnp.sqrt(jnp.where(norm_sq == 0, 1.0, norm_sq))
 
     return cross_corr_raw / norm, n_timesteps
 

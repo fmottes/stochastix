@@ -289,6 +289,71 @@ def test_default_interpolation_errors_explain_opt_out():
     )
 
 
+@pytest.mark.parametrize('state_type', ['array', 'dict', 'module'])
+@pytest.mark.parametrize('batched', [False, True])
+def test_array_zero_opt_out_without_history_matches_python_zero(state_type, batched):
+    original = _trajectory(propensities=False)
+    if state_type == 'array':
+        state = original.x
+        read_state = lambda r: r.x
+    elif state_type == 'dict':
+        state = {'A': original.x[:, 0], 'label': 'counts'}
+        read_state = lambda r: r.x['A']
+    else:
+        state = _State(original.x[:, 0])
+        read_state = lambda r: r.x.A
+    results = stx.SimulationResults(x=state, t=original.t, species=('A',))
+    if batched:
+        results = eqx.filter_vmap(lambda _: results)(jnp.arange(2))
+    observations = jnp.array([0.8, 1.8])
+
+    def loss(r, bw):
+        return jnp.square(
+            read_state(r.interpolate(observations, time_kernel_bw=bw))
+        ).sum()
+
+    evaluate = eqx.filter_jit(eqx.filter_value_and_grad(loss))
+    actual, actual_gradient = evaluate(results, jnp.array(0.0))
+    expected, expected_gradient = evaluate(results, 0)
+    np.testing.assert_array_equal(actual, expected)
+    for a, b in zip(
+        jax.tree.leaves(actual_gradient), jax.tree.leaves(expected_gradient)
+    ):
+        np.testing.assert_array_equal(a, b)
+    np.testing.assert_array_equal(actual_gradient.t, 0.0)
+
+
+def test_traced_nonzero_bandwidth_still_requires_history():
+    results = stx.SimulationResults(
+        x=jnp.array([[0.0], [1.0]]), t=jnp.array([0.0, 2.0])
+    )
+
+    @eqx.filter_jit
+    def evaluate(bw):
+        return results.interpolate(jnp.array([1.0]), time_kernel_bw=bw).x
+
+    np.testing.assert_array_equal(evaluate(jnp.array(0.0)), [[0.0]])
+    for bw in (0.3, -0.1, float('inf'), float('nan')):
+        with pytest.raises((ValueError, RuntimeError), match='full saved trajectory'):
+            evaluate(jnp.array(bw)).block_until_ready()
+    with pytest.raises(ValueError, match='must be a scalar'):
+        evaluate(jnp.zeros(2))
+
+
+def test_traced_bandwidth_with_history_keeps_fixed_kernel_gradients():
+    results = _trajectory(propensities=False)
+
+    def loss(t, bw):
+        r = eqx.tree_at(lambda r: r.t, results, t)
+        return r.interpolate(jnp.array([0.8, 1.8]), time_kernel_bw=bw).x.sum()
+
+    gradient = eqx.filter_jit(eqx.filter_grad(loss))
+    np.testing.assert_array_equal(gradient(results.t, jnp.array(0.0)), 0.0)
+    actual = gradient(results.t, jnp.array(0.3))
+    np.testing.assert_allclose(actual, gradient(results.t, 0.3), rtol=1e-6)
+    assert jnp.all(jnp.isfinite(actual)) and jnp.linalg.norm(actual) > 0
+
+
 def test_batched_kernel_preserves_dynamic_state_metadata():
     results = _trajectory()
     state = {'A': results.x[:, 0], 'label': 'counts', 'scalar': jnp.array(7.0)}
