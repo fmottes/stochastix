@@ -184,6 +184,17 @@ class DGA(AbstractStochasticSolver):
 #####################################################################################
 
 
+def _validate_reaction_grad(reaction_grad, exact_fwd, logits_scale):
+    """Validate the shared reaction-gradient options for differentiable solvers."""
+    if reaction_grad not in ('stgs', 'reinmax'):
+        raise ValueError("reaction_grad must be 'stgs' or 'reinmax'")
+    if reaction_grad == 'reinmax':
+        if not exact_fwd:
+            raise ValueError('ReinMax requires exact_fwd=True')
+        if not math.isfinite(logits_scale) or logits_scale < 1:
+            raise ValueError('ReinMax requires a finite logits_scale >= 1')
+
+
 def _reinmax(logits: jax.Array, sample: jax.Array, temperature: float) -> jax.Array:
     """Return a hard sample with ReinMax's surrogate derivative in logit space."""
     probabilities = jax.nn.softmax(logits)
@@ -264,13 +275,7 @@ class DifferentiableDirect(AbstractStochasticSolver):
             ValueError: If the estimator is unknown, or ReinMax is requested
                 with a relaxed forward pass or an invalid temperature.
         """
-        if reaction_grad not in ('stgs', 'reinmax'):
-            raise ValueError("reaction_grad must be 'stgs' or 'reinmax'")
-        if reaction_grad == 'reinmax':
-            if not exact_fwd:
-                raise ValueError('ReinMax requires exact_fwd=True')
-            if not math.isfinite(logits_scale) or logits_scale < 1:
-                raise ValueError('ReinMax requires a finite logits_scale >= 1')
+        _validate_reaction_grad(reaction_grad, exact_fwd, logits_scale)
         super().__init__(is_exact_solver=exact_fwd, is_pathwise_differentiable=True)
         self.logits_scale = logits_scale
         self.reaction_grad = reaction_grad
@@ -388,7 +393,7 @@ class DifferentiableDirect(AbstractStochasticSolver):
 
 
 class DifferentiableFirstReaction(AbstractStochasticSolver):
-    """Pathwise differentiable First Reaction Method using the Straight-Through Gumbel-Softmax Gradient Estimator.
+    """Differentiable First Reaction Method with relaxed or ReinMax gradients.
 
     This solver implements the First Reaction Method in a form that is
     pathwise differentiable. It is the differentiable counterpart to FirstReactionMethod.
@@ -401,38 +406,64 @@ class DifferentiableFirstReaction(AbstractStochasticSolver):
     - If `exact_fwd=False`, it uses a continuous relaxation for both the
         state update and `dt`, making the forward pass approximate.
 
-    The backward pass uses a continuous relaxation (soft-argmin) of the
-    reaction choice and a relaxed `dt` to enable gradient propagation.
+    By default, `reaction_grad='stgs'` retains the existing soft-argmin
+    relaxation of candidate firing times for both reaction and time gradients.
+    With `reaction_grad='reinmax'`, the forward pass still selects the earliest
+    candidate, while the backward pass uses ReinMax on the reaction probabilities
+    and differentiates the waiting time through total propensity. This separates
+    reaction choice from the clock, as in the Direct Method. ReinMax requires
+    `exact_fwd=True`. Both gradient estimators are biased.
 
     Note: Zero-propensity gradients
         At each step, the selection relaxation has zero local derivative for
         zero-propensity reactions.
 
     Attributes:
-        logits_scale: The temperature for the softmax relaxation.
+        logits_scale: Soft-argmin time scale, or ReinMax temperature (>= 1).
+        reaction_grad: Reaction-choice gradient estimator, 'stgs' or 'reinmax'.
         is_exact_solver: Boolean flag indicating exactness based on exact_fwd.
         is_pathwise_differentiable: Boolean flag indicating differentiability.
 
     Methods:
         propensities: Calculate reaction propensities for the current state.
         step: Execute one step of the differentiable First Reaction Method.
+
+    References:
+        Liu et al. (2023). Bridging Discrete and Backpropagation:
+        Straight-Through and Beyond. https://arxiv.org/abs/2304.08612
     """
 
     logits_scale: float
+    reaction_grad: typing.Literal['stgs', 'reinmax'] = eqx.field(static=True)
 
-    def __init__(self, logits_scale: float = 1.0, exact_fwd: bool = True):
+    def __init__(
+        self,
+        logits_scale: float = 1.0,
+        exact_fwd: bool = True,
+        *,
+        reaction_grad: typing.Literal['stgs', 'reinmax'] = 'stgs',
+    ):
         """Initialize the DifferentiableFirstReaction solver.
 
         Args:
-            logits_scale: The temperature for the soft-argmin relaxation.
-                Smaller values give a better approximation but may have higher
-                variance gradients. Defaults to 1.0.
+            logits_scale: Time scale for the existing soft-argmin relaxation,
+                where smaller values sharpen reaction selection. For ReinMax,
+                this is a dimensionless temperature, which must be finite and
+                >= 1; 1 gives standard ReinMax. Defaults to 1.0.
             exact_fwd: If True, the forward pass is exact, using a straight-
                 through estimator. If False, the forward pass is relaxed and
                 approximate.
+            reaction_grad: Reaction-choice gradient estimator. ReinMax requires
+                `exact_fwd=True`. Defaults to 'stgs' (the existing relaxation).
+
+        Raises:
+            ValueError: If the estimator is unknown, or ReinMax is requested
+                with a relaxed forward pass or an invalid temperature.
         """
+        _validate_reaction_grad(reaction_grad, exact_fwd, logits_scale)
         super().__init__(is_exact_solver=exact_fwd, is_pathwise_differentiable=True)
         self.logits_scale = logits_scale
+        self.reaction_grad = reaction_grad
 
     def propensities(self, network, x, t):
         """Calculate reaction propensities for the current state.
@@ -460,18 +491,18 @@ class DifferentiableFirstReaction(AbstractStochasticSolver):
     def step(
         self,
         network: ReactionNetwork,
-        t: jnp.floating,
-        x: jnp.ndarray,
-        a: jnp.ndarray,
+        t: jax.Array,
+        x: jax.Array,
+        a: jax.Array,
         state,
         *,
-        key: jnp.ndarray,
+        key: jax.Array,
     ) -> tuple[SimulationStep, None]:
         """Execute one step of the differentiable First Reaction Method.
 
         1. Samples candidate firing times for all reactions.
-        2. For the backward pass, computes a soft reaction selection
-            (`soft-argmin`) and a soft `dt` using a softmax relaxation.
+        2. The backward pass uses the existing soft-argmin relaxation or ReinMax
+            with a waiting-time gradient through total propensity.
         3. If `exact_fwd=True`, the forward pass selects the reaction with the
             minimum firing time (`argmin`) and its `dt`, while gradients are
             propagated through the soft values via a straight-through estimator.
@@ -498,34 +529,47 @@ class DifferentiableFirstReaction(AbstractStochasticSolver):
             -jnp.log(rng.uniform(key, shape=a.shape)) / safe_a,
             jnp.inf,
         )
+        r_hard = jnp.argmin(dt_vec)
+        dt_hard = dt_vec[r_hard]
 
-        # Differentiable backward pass using softmax relaxation
-        # soft-argmin is softmax of negative values:
-        # The argmin of Exp(1)/a_j is equivalent to argmax(log(a_j) + g_j)
-        p_gumbel = jax.nn.softmax(-dt_vec / self.logits_scale)
+        if self.reaction_grad == 'reinmax':
+            logits = jnp.where(positive, jnp.log(safe_a), -jnp.inf)
+            sample = jax.nn.one_hot(r_hard, a.size, dtype=a.dtype)
+            reaction_weights = _reinmax(logits, sample, self.logits_scale)
 
-        delta_x_soft = self._delta_x_soft(stoichiometry_matrix, p_gumbel)
-        dt_soft = jnp.sum(p_gumbel * jnp.where(positive, dt_vec, 0.0))
+            # The minimum is Exp(sum(a)), independently of the winning reaction.
+            # Keep its forward sample, but use d(dt) = -dt * d(log(sum(a))).
+            log_a0 = jnp.log(jnp.sum(a))
+            dt_soft = jax.lax.stop_gradient(dt_hard) * jnp.exp(
+                jax.lax.stop_gradient(log_a0) - log_a0
+            )
+        else:
+            reaction_weights = jax.nn.softmax(-dt_vec / self.logits_scale)
+            dt_soft = jnp.sum(reaction_weights * jnp.where(positive, dt_vec, 0.0))
+
+        delta_x_soft = self._delta_x_soft(stoichiometry_matrix, reaction_weights)
 
         if self.is_exact_solver:
             # Exact forward pass with straight-through estimator
-            r_hard = jnp.argmin(dt_vec)
             reaction_idx = r_hard
 
             # compute delta_x for the exact forward pass
             delta_x_hard = self._delta_x(stoichiometry_matrix, r_hard)
-            delta_x = jax.lax.stop_gradient(delta_x_hard - delta_x_soft) + delta_x_soft
+            delta_x = jax.lax.stop_gradient(delta_x_hard) + (
+                delta_x_soft - jax.lax.stop_gradient(delta_x_soft)
+            )
             x_new = x + delta_x
 
             # compute dt for the exact forward pass
-            dt_hard = dt_vec[r_hard]
-            dt = dt_soft + jax.lax.stop_gradient(dt_hard - dt_soft)
+            dt = jax.lax.stop_gradient(dt_hard) + (
+                dt_soft - jax.lax.stop_gradient(dt_soft)
+            )
 
         else:
             # Soft forward pass (inexact)
             x_new = x + delta_x_soft
             dt = dt_soft
-            reaction_idx = p_gumbel
+            reaction_idx = reaction_weights
 
         step_result = SimulationStep(
             x_new=x_new,

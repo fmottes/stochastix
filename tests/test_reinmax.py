@@ -7,7 +7,11 @@ import pytest
 from stochastix import stochsimsolve
 from stochastix.kinetics import MassAction
 from stochastix.reaction import Reaction, ReactionNetwork
-from stochastix.solvers import DifferentiableDirect
+from stochastix.solvers import (
+    DifferentiableDirect,
+    DifferentiableFirstReaction,
+    FirstReactionMethod,
+)
 from stochastix.solvers._differentiable import _reinmax
 
 
@@ -25,8 +29,11 @@ def _step(network, solver, a, key):
 
 
 @pytest.mark.parametrize('temperature', [1.0, 2.0, 5.0])
-def test_reinmax_step_gradient_matches_formula(network, temperature):
-    solver = DifferentiableDirect(reaction_grad='reinmax', logits_scale=temperature)
+@pytest.mark.parametrize(
+    'solver_class', [DifferentiableDirect, DifferentiableFirstReaction]
+)
+def test_reinmax_step_gradient_matches_formula(network, temperature, solver_class):
+    solver = solver_class(reaction_grad='reinmax', logits_scale=temperature)
     logits = jnp.log(jnp.array([0.2, 1.3, 2.5]))
     key = jax.random.PRNGKey(42)
     costs = jnp.array([-0.5, 1.3, 2.0])
@@ -77,8 +84,13 @@ def test_reinmax_expected_gradient_is_exact_for_quadratic_loss():
 
 @pytest.mark.parametrize('temperature', [1.0, 2.0])
 @pytest.mark.parametrize('a', [[0.0, 0.3, 2.0], [0.0, 1e-30, 0.0]])
-def test_reinmax_disabled_reactions_have_finite_zero_gradients(network, temperature, a):
-    solver = DifferentiableDirect(reaction_grad='reinmax', logits_scale=temperature)
+@pytest.mark.parametrize(
+    'solver_class', [DifferentiableDirect, DifferentiableFirstReaction]
+)
+def test_reinmax_disabled_reactions_have_finite_zero_gradients(
+    network, temperature, a, solver_class
+):
+    solver = solver_class(reaction_grad='reinmax', logits_scale=temperature)
     a = jnp.array(a)
     keys = jax.random.split(jax.random.PRNGKey(2026), 64)
 
@@ -96,7 +108,12 @@ def test_reinmax_disabled_reactions_have_finite_zero_gradients(network, temperat
 
 
 @pytest.mark.parametrize('temperature', [1.0, 2.0])
-def test_reinmax_trajectory_matches_stgs_and_supports_time_kernel(temperature):
+@pytest.mark.parametrize(
+    'solver_class', [DifferentiableDirect, DifferentiableFirstReaction]
+)
+def test_reinmax_trajectory_matches_stgs_and_supports_time_kernel(
+    temperature, solver_class
+):
     def simulate(log_rates, solver):
         network = ReactionNetwork(
             [
@@ -114,8 +131,8 @@ def test_reinmax_trajectory_matches_stgs_and_supports_time_kernel(temperature):
         )
 
     log_rates = jnp.log(jnp.array([3.0, 0.8]))
-    solver = DifferentiableDirect(reaction_grad='reinmax', logits_scale=temperature)
-    expected = simulate(log_rates, DifferentiableDirect(logits_scale=temperature))
+    solver = solver_class(reaction_grad='reinmax', logits_scale=temperature)
+    expected = simulate(log_rates, solver_class(logits_scale=temperature))
     actual = simulate(log_rates, solver)
     for field in ('x', 't', 'reactions', 'propensities', 'time_overflow'):
         np.testing.assert_array_equal(getattr(actual, field), getattr(expected, field))
@@ -128,7 +145,7 @@ def test_reinmax_trajectory_matches_stgs_and_supports_time_kernel(temperature):
         )
         return jnp.square(observed.x - 4).mean()
 
-    # Exercise the custom derivative inside scan, jit and ensemble vmap.
+    # Exercise the surrogate gradient inside scan, jit and ensemble vmap.
     rates_batch = jnp.stack([log_rates, log_rates + 0.1])
     losses, gradients = eqx.filter_jit(
         eqx.filter_vmap(eqx.filter_value_and_grad(loss))
@@ -151,11 +168,76 @@ def test_reinmax_trajectory_matches_stgs_and_supports_time_kernel(temperature):
         ],
     ],
 )
-def test_invalid_reinmax_options(kwargs, message):
+@pytest.mark.parametrize(
+    'solver_class', [DifferentiableDirect, DifferentiableFirstReaction]
+)
+def test_invalid_reinmax_options(kwargs, message, solver_class):
     with pytest.raises(ValueError, match=message):
-        DifferentiableDirect(**kwargs)
+        solver_class(**kwargs)
 
 
-def test_stgs_remains_default_and_supports_relaxed_forward():
-    assert DifferentiableDirect().reaction_grad == 'stgs'
-    assert not DifferentiableDirect(logits_scale=0.3, exact_fwd=False).is_exact_solver
+@pytest.mark.parametrize(
+    'solver_class', [DifferentiableDirect, DifferentiableFirstReaction]
+)
+def test_stgs_remains_default_and_supports_relaxed_forward(solver_class):
+    assert solver_class().reaction_grad == 'stgs'
+    assert not solver_class(logits_scale=0.3, exact_fwd=False).is_exact_solver
+
+
+def test_frm_reinmax_preserves_exact_exponential_race(network):
+    a = jnp.array([0.0, 0.3, 2.0])
+    keys = jax.random.split(jax.random.PRNGKey(2026), 64)
+    simulate = eqx.filter_jit(eqx.filter_vmap(_step, in_axes=(None, None, None, 0)))
+    expected = simulate(network, FirstReactionMethod(), a, keys)
+    actual = simulate(
+        network, DifferentiableFirstReaction(reaction_grad='reinmax'), a, keys
+    )
+    for field in ('x_new', 'dt', 'reaction_idx', 'propensities'):
+        np.testing.assert_array_equal(getattr(actual, field), getattr(expected, field))
+
+
+def test_frm_reinmax_joint_reaction_and_time_gradient(network):
+    """The combined channels must reproduce an exactly solvable joint moment."""
+    solver = DifferentiableFirstReaction(reaction_grad='reinmax')
+    logits = jnp.log(jnp.array([0.2, 1.3, 2.5]))
+    costs = jnp.array([-0.5, 1.3, 2.0])
+
+    def loss(logits, key):
+        step = _step(network, solver, jnp.exp(logits), key)
+        return (step.x_new @ costs) * step.dt
+
+    keys = jax.random.split(jax.random.PRNGKey(17), 16384)
+    gradients = eqx.filter_jit(
+        eqx.filter_vmap(eqx.filter_grad(loss), in_axes=(None, 0))
+    )(logits, keys)
+    # E[cost(reaction) * dt] = sum(a * costs) / sum(a)**2.
+    exact_loss = lambda logits: (
+        jnp.sum(jnp.exp(logits) * costs) / jnp.sum(jnp.exp(logits)) ** 2
+    )
+    expected = eqx.filter_grad(exact_loss)(logits)
+    mean = np.asarray(gradients).mean(axis=0)
+    se = np.asarray(gradients).std(axis=0, ddof=1) / np.sqrt(len(keys))
+    assert np.all(np.abs(mean - np.asarray(expected)) < 5 * se + 1e-6)
+
+
+def test_frm_reinmax_absorbing_states_in_batched_time_kernel_loss():
+    solver = DifferentiableFirstReaction(reaction_grad='reinmax')
+    keys = jax.random.split(jax.random.PRNGKey(19), 3)
+    initial_states = jnp.array([[0.0], [1.0], [2.0]])
+
+    def loss(log_rate):
+        network = ReactionNetwork(
+            [Reaction('A -> 0', MassAction(k=log_rate, transform=jnp.exp))]
+        )
+
+        def simulate(key, x0):
+            return stochsimsolve(key, network, x0, T=4.0, max_steps=16, solver=solver)
+
+        results = eqx.filter_vmap(simulate)(keys, initial_states)
+        return results.interpolate(
+            jnp.array([0.5, 1.0]), time_kernel_bw='adaptive'
+        ).x.mean()
+
+    value, gradient = eqx.filter_jit(eqx.filter_value_and_grad(loss))(jnp.log(0.7))
+    assert jnp.isfinite(value)
+    assert jnp.isfinite(gradient)
