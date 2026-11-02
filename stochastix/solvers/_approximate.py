@@ -221,7 +221,7 @@ class TauLeaping(AbstractStochasticSolver):
         # Handle case where dt is infinite (no reactions possible)
         r = jnp.where(
             jnp.isfinite(dt),
-            rng.poisson(key, means).astype(jnp.float32),
+            rng.poisson(key, means).astype(a.dtype),
             jnp.zeros_like(a),
         )
 

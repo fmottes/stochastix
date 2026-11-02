@@ -157,12 +157,12 @@ class HillActivator(AbstractKinetics):
         n = self.transform_n(self.n)
 
         K_in_counts = K * volume
-        safe_K = jnp.maximum(K_in_counts, jnp.finfo(jnp.float32).eps)
+        eps = jnp.finfo(jnp.result_type(X, K_in_counts, 1.0)).eps
+        safe_K = jnp.maximum(K_in_counts, eps)
         ratio = X / safe_K
 
         # The expression `ratio**n / (1 + ratio**n)` is equivalent to sigmoid(n * log(ratio))
         # and is more numerically stable.
-        eps = jnp.finfo(jnp.float32).eps
         safe_ratio = jnp.maximum(ratio, eps)
         log_arg = n * jnp.log(safe_ratio)
         prop = nn.sigmoid(log_arg)
@@ -192,12 +192,12 @@ class HillActivator(AbstractKinetics):
         K = self.transform_K(self.K)
         n = self.transform_n(self.n)
 
-        safe_K = jnp.maximum(K, jnp.finfo(jnp.float32).eps)
+        eps = jnp.finfo(jnp.result_type(X_conc, K, 1.0)).eps
+        safe_K = jnp.maximum(K, eps)
         ratio = X_conc / safe_K
 
         # The expression `ratio**n / (1 + ratio**n)` is equivalent to sigmoid(n * log(ratio))
         # and is more numerically stable.
-        eps = jnp.finfo(jnp.float32).eps
         safe_ratio = jnp.maximum(ratio, eps)
         log_arg = n * jnp.log(safe_ratio)
         rate_in_conc_units = v * nn.sigmoid(log_arg)
@@ -352,12 +352,12 @@ class HillRepressor(AbstractKinetics):
         n = self.transform_n(self.n)
 
         K_in_counts = K * volume
-        safe_K = jnp.maximum(K_in_counts, jnp.finfo(jnp.float32).eps)
+        eps = jnp.finfo(jnp.result_type(X, K_in_counts, 1.0)).eps
+        safe_K = jnp.maximum(K_in_counts, eps)
         ratio = X / safe_K
 
         # The expression `1 / (1 + ratio**n)` is equivalent to sigmoid(-n * log(ratio))
         # and is more numerically stable.
-        eps = jnp.finfo(jnp.float32).eps
         safe_ratio = jnp.maximum(ratio, eps)
         log_arg = -n * jnp.log(safe_ratio)
         prop = nn.sigmoid(log_arg)
@@ -386,12 +386,12 @@ class HillRepressor(AbstractKinetics):
         K = self.transform_K(self.K)
         n = self.transform_n(self.n)
 
-        safe_K = jnp.maximum(K, jnp.finfo(jnp.float32).eps)
+        eps = jnp.finfo(jnp.result_type(X_conc, K, 1.0)).eps
+        safe_K = jnp.maximum(K, eps)
         ratio = X_conc / safe_K
 
         # The expression `1 / (1 + ratio**n)` is equivalent to sigmoid(-n * log(ratio))
         # and is more numerically stable.
-        eps = jnp.finfo(jnp.float32).eps
         safe_ratio = jnp.maximum(ratio, eps)
         log_arg = -n * jnp.log(safe_ratio)
         rate_in_conc_units = v * nn.sigmoid(log_arg)
@@ -540,13 +540,13 @@ class HillSingleRegulator(AbstractKinetics):
         # Numerically stable formulation to avoid overflow with large n
         # This is equivalent to v * X^n / (K^n + X^n)
         # Add small epsilon to prevent division by zero when K is very small
-        safe_K = jnp.maximum(K_in_counts, jnp.finfo(jnp.float32).eps)
+        eps = jnp.finfo(jnp.result_type(X, K_in_counts, 1.0)).eps
+        safe_K = jnp.maximum(K_in_counts, eps)
         ratio = X / safe_K
 
         # The expression `ratio**n / (1 + ratio**n)` is equivalent to sigmoid(n * log(ratio))
         # and is more numerically stable. This single formulation works for both
         # activation (n > 0) and repression (n < 0).
-        eps = jnp.finfo(jnp.float32).eps
         safe_ratio = jnp.maximum(ratio, eps)
         log_arg = n * jnp.log(safe_ratio)
         prop = nn.sigmoid(log_arg)
@@ -575,13 +575,13 @@ class HillSingleRegulator(AbstractKinetics):
         K = self.transform_K(self.K)
         n = self.transform_n(self.n)
         # Numerically stable formulation to avoid overflow with large n
-        safe_K = jnp.maximum(K, jnp.finfo(jnp.float32).eps)
+        eps = jnp.finfo(jnp.result_type(X_conc, K, 1.0)).eps
+        safe_K = jnp.maximum(K, eps)
         ratio = X_conc / safe_K
 
         # The expression `ratio**n / (1 + ratio**n)` is equivalent to sigmoid(n * log(ratio))
         # and is more numerically stable. This single formulation works for both
         # activation (n > 0) and repression (n < 0).
-        eps = jnp.finfo(jnp.float32).eps
         safe_ratio = jnp.maximum(ratio, eps)
         log_arg = n * jnp.log(safe_ratio)
         rate_in_conc_units = v * nn.sigmoid(log_arg)

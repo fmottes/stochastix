@@ -47,7 +47,7 @@ def _check_params(v, transform_v, v0, transform_v0, K, transform_K, n, transform
 
 def _hill_aa_fn(x, y, n1, n2, logic, competitive_binding):
     """Dimensionless production rate for two activators."""
-    eps = jnp.finfo(jnp.float32).eps
+    eps = jnp.finfo(jnp.result_type(x, y, 1.0)).eps
     log_x = jnp.log(jnp.maximum(x, eps))
     log_y = jnp.log(jnp.maximum(y, eps))
 
@@ -78,7 +78,7 @@ def _hill_aa_fn(x, y, n1, n2, logic, competitive_binding):
 
 def _hill_rr_fn(x, y, n1, n2, logic, competitive_binding):
     """Dimensionless production rate for two repressors."""
-    eps = jnp.finfo(jnp.float32).eps
+    eps = jnp.finfo(jnp.result_type(x, y, 1.0)).eps
     log_x = jnp.log(jnp.maximum(x, eps))
     log_y = jnp.log(jnp.maximum(y, eps))
 
@@ -106,7 +106,7 @@ def _hill_rr_fn(x, y, n1, n2, logic, competitive_binding):
 
 def _hill_ar_fn(x, y, n1, n2, logic, competitive_binding):
     """Dimensionless production rate for one activator and one repressor."""
-    eps = jnp.finfo(jnp.float32).eps
+    eps = jnp.finfo(jnp.result_type(x, y, 1.0)).eps
     log_x = jnp.log(jnp.maximum(x, eps))  # activator
     log_y = jnp.log(jnp.maximum(y, eps))  # repressor
 
@@ -305,8 +305,9 @@ class HillAA(AbstractKinetics):
         )
 
     def _get_rate_in_conc(self, X1_conc, X2_conc, v, v0, K1, K2, n1, n2):
-        safe_K1 = jnp.maximum(K1, jnp.finfo(jnp.float32).eps)
-        safe_K2 = jnp.maximum(K2, jnp.finfo(jnp.float32).eps)
+        eps = jnp.finfo(jnp.result_type(X1_conc, X2_conc, K1, K2, 1.0)).eps
+        safe_K1 = jnp.maximum(K1, eps)
+        safe_K2 = jnp.maximum(K2, eps)
 
         x = X1_conc / safe_K1
         y = X2_conc / safe_K2
@@ -515,8 +516,9 @@ class HillRR(AbstractKinetics):
         )
 
     def _get_rate_in_conc(self, X1_conc, X2_conc, v, v0, K1, K2, n1, n2):
-        safe_K1 = jnp.maximum(K1, jnp.finfo(jnp.float32).eps)
-        safe_K2 = jnp.maximum(K2, jnp.finfo(jnp.float32).eps)
+        eps = jnp.finfo(jnp.result_type(X1_conc, X2_conc, K1, K2, 1.0)).eps
+        safe_K1 = jnp.maximum(K1, eps)
+        safe_K2 = jnp.maximum(K2, eps)
 
         x = X1_conc / safe_K1
         y = X2_conc / safe_K2
@@ -720,8 +722,9 @@ class HillAR(AbstractKinetics):
         )
 
     def _get_rate_in_conc(self, Xa_conc, Xr_conc, v, v0, Ka, Kr, na, nr):
-        safe_Ka = jnp.maximum(Ka, jnp.finfo(jnp.float32).eps)
-        safe_Kr = jnp.maximum(Kr, jnp.finfo(jnp.float32).eps)
+        eps = jnp.finfo(jnp.result_type(Xa_conc, Xr_conc, Ka, Kr, 1.0)).eps
+        safe_Ka = jnp.maximum(Ka, eps)
+        safe_Kr = jnp.maximum(Kr, eps)
 
         x = Xa_conc / safe_Ka  # activator
         y = Xr_conc / safe_Kr  # repressor
