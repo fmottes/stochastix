@@ -86,8 +86,12 @@ def test_analysis_time_kernel_matches_explicit_interpolation(analysis, bandwidth
         return cross_correlation(r, 'A', 'B', n_points=7, **kernel_kwargs)[1]
 
     actual = eqx.filter_jit(evaluate)(results, bandwidth)
-    np.testing.assert_array_equal(actual, evaluate(results, 0))
-    np.testing.assert_allclose(actual, evaluate(results, bandwidth, True), atol=1e-7)
+    # JIT fusion can change float32 reduction rounding in derived statistics.
+    # Exact forward-fill values are checked separately in test_time_kernel.py.
+    np.testing.assert_allclose(actual, evaluate(results, 0), rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(
+        actual, evaluate(results, bandwidth, True), rtol=1e-6, atol=1e-7
+    )
 
     def loss(times, explicit=False):
         r = eqx.tree_at(lambda r: r.t, results, times)
