@@ -30,7 +30,9 @@ def autocorrelation(
     results: SimulationResults,
     n_points: int = 1000,
     species: str | tuple[str, ...] = '*',
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+    *,
+    time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 0,
+) -> tuple[jax.Array, jax.Array]:
     """Compute the autocorrelation of species trajectories.
 
     This function first interpolates the simulation data onto a regular time
@@ -42,6 +44,10 @@ def autocorrelation(
         n_points: The number of points for the interpolation grid.
         species: The species for which to compute the autocorrelation. Can be
             "*" for all species, or a string or tuple of strings for specific species.
+        time_kernel_bw: Event-time gradient kernel passed to `results.interpolate`.
+            Zero disables it, a positive value sets a fixed width, and 'adaptive'
+            uses saved propensities. Forward values are unchanged. The grid spans
+            the saved trajectory; kernels near its boundaries have truncated tails.
 
     Returns:
         Tuple `(lags, autocorrs)` where:
@@ -57,7 +63,8 @@ def autocorrelation(
     t_interp = jnp.linspace(t_start, t_end, n_points)
 
     # Interpolate the state trajectory to the new time grid.
-    x = pytree_to_state(results.interpolate(t_interp).x, results.species)
+    observed = results.interpolate(t_interp, time_kernel_bw=time_kernel_bw)
+    x = pytree_to_state(observed.x, results.species)
 
     if species != '*':
         if isinstance(species, str):
@@ -93,7 +100,9 @@ def cross_correlation(
     species1: str,
     species2: str,
     n_points: int = 1000,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+    *,
+    time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 0,
+) -> tuple[jax.Array, jax.Array]:
     """Compute the cross-correlation between two species trajectories.
 
     This function interpolates the simulation data onto a regular time grid and
@@ -104,6 +113,10 @@ def cross_correlation(
         species1: The name of the first species.
         species2: The name of the second species.
         n_points: The number of points for the interpolation grid.
+        time_kernel_bw: Event-time gradient kernel passed to `results.interpolate`.
+            Zero disables it, a positive value sets a fixed width, and 'adaptive'
+            uses saved propensities. Forward values are unchanged. The grid spans
+            the saved trajectory; kernels near its boundaries have truncated tails.
 
     Returns:
         A tuple `(lags, cross_corr)` where:
@@ -117,7 +130,8 @@ def cross_correlation(
     t_interp = jnp.linspace(t_start, t_end, n_points)
 
     # Interpolate the state trajectory to the new time grid.
-    x = pytree_to_state(results.interpolate(t_interp).x, results.species)
+    observed = results.interpolate(t_interp, time_kernel_bw=time_kernel_bw)
+    x = pytree_to_state(observed.x, results.species)
 
     idx1 = results.species.index(species1)
     idx2 = results.species.index(species2)

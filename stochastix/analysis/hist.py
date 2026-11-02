@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import typing
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 
@@ -27,7 +28,8 @@ def state_kde(
     bw_multiplier: float = 1.0,
     dirichlet_alpha: float | None = 0.1,
     dirichlet_kappa: float | None = None,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+    time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 0,
+) -> tuple[jax.Array, jax.Array]:
     """Compute a kernel density estimate (KDE) of the state distribution.
 
     This function is a convenience wrapper around KDE functions that specifically
@@ -48,7 +50,8 @@ def state_kde(
             Riemann sum over the grid integrates to 1. If ``False``, returns
             unnormalized counts/weights per grid point.
         t: Scalar physical time at which to compute the KDE. If ``None``
-            (default), uses the final recorded state.
+            (default), uses the final recorded state; time kernels at that
+            boundary have truncated tails.
         kde_type: Type of kernel to use. One of ``'triangular'``, ``'exponential'``,
             ``'gaussian'``, or ``'wendland_c2'``. Default is ``'wendland_c2'``.
         bw_multiplier: Kernel bandwidth multiplier. Controls the width of the
@@ -60,6 +63,10 @@ def state_kde(
             takes priority over ``dirichlet_alpha`` and ``alpha = kappa / K`` where
             K is the number of grid points. If ``None``, uses ``dirichlet_alpha``
             instead.
+        time_kernel_bw: Event-time gradient kernel passed to `results.interpolate`.
+            Zero disables it, a positive value sets a fixed width, and 'adaptive'
+            uses saved propensities. Forward values are unchanged. Supply enough
+            trajectory coverage beyond the observation for the kernel tails.
 
     Returns:
         A tuple ``(grid, values)`` where:
@@ -77,11 +84,13 @@ def state_kde(
     species_indices = jnp.array([results.species.index(s) for s in species])
 
     if t is None:
-        x = pytree_to_state(results.x, results.species)[:, -1, species_indices]
+        results = eqx.filter_vmap(
+            lambda r: r.interpolate(r.t[-1], time_kernel_bw=time_kernel_bw)
+        )(results)
     else:
         t = normalize_time_scalar(t, arg_name='t')
-        results = results.interpolate(t)
-        x = pytree_to_state(results.x, results.species)[:, species_indices]
+        results = results.interpolate(t, time_kernel_bw=time_kernel_bw)
+    x = pytree_to_state(results.x, results.species)[:, species_indices]
 
     # Validate selected kernel before vmapping.
     valid_kde_types = ('triangular', 'exponential', 'gaussian', 'wendland_c2')
@@ -117,6 +126,6 @@ def state_kde(
         return kde(data, kernel=kde_type, **grid_params)[1]
 
     # Vectorize over the species
-    values = jax.vmap(_get_kde, in_axes=1, out_axes=1)(x)
+    values = eqx.filter_vmap(_get_kde, in_axes=1, out_axes=1)(x)
 
     return grid, values

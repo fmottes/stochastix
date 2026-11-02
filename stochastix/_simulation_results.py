@@ -341,7 +341,11 @@ class SimulationResults(eqx.Module):
 
             weights = None
             if use_kernel:
-                weights, valid = _time_kernel_weights(results, t_interp, time_kernel_bw)
+                weights, valid = _time_kernel_weights(
+                    results, jnp.atleast_1d(t_interp), time_kernel_bw
+                )
+                if jnp.ndim(t_interp) == 0:
+                    weights = weights[0]
 
             def _read_leaf(leaf):
                 # Preserve static metadata in custom state PyTrees.

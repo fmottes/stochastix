@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import typing
 
+import jax
 import jax.numpy as jnp
 
 from .._state_utils import pytree_to_state
@@ -155,7 +156,8 @@ def state_mutual_info(
     bw_multiplier: float = 1.0,
     dirichlet_alpha: float | None = 0.1,
     dirichlet_kappa: float | None = None,
-) -> jnp.ndarray:
+    time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 0,
+) -> jax.Array:
     """Compute the mutual information between two species at specific time points.
 
     This function calculates the mutual information between the distributions of
@@ -181,6 +183,10 @@ def state_mutual_info(
         results: The `SimulationResults` from a `stochsimsolve` simulation.
             This should contain a batch of simulation trajectories (e.g., from
             vmapping over `stochsimsolve`).
+        time_kernel_bw: Event-time gradient kernel passed to `results.interpolate`.
+            Zero disables it, a positive value sets a fixed width, and 'adaptive'
+            uses saved propensities. Forward values are unchanged. Supply enough
+            trajectory coverage beyond the observations for the kernel tails.
         species_at_t: An iterable containing two tuples, where each tuple consists
             of a species name and a scalar physical time point, e.g.,
             `[('S1', t1), ('S2', t2)]`.
@@ -224,10 +230,12 @@ def state_mutual_info(
     t1 = normalize_time_scalar(t1, arg_name='species_at_t[0][1]')
     t2 = normalize_time_scalar(t2, arg_name='species_at_t[1][1]')
 
-    x1 = pytree_to_state(results.interpolate(t1).x, results.species)[:, s1_idx]
+    observed1 = results.interpolate(t1, time_kernel_bw=time_kernel_bw)
+    x1 = pytree_to_state(observed1.x, results.species)[:, s1_idx]
     # Re-interpolate even if t1==t2 for simplicity and to handle
     # the case where results.interpolate is not memoized.
-    x2 = pytree_to_state(results.interpolate(t2).x, results.species)[:, s2_idx]
+    observed2 = results.interpolate(t2, time_kernel_bw=time_kernel_bw)
+    x2 = pytree_to_state(observed2.x, results.species)[:, s2_idx]
 
     return mutual_information(
         x1,

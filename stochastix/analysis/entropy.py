@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import typing
 
+import jax
 import jax.numpy as jnp
 
 from .._state_utils import pytree_to_state
@@ -124,7 +125,8 @@ def state_entropy(
     bw_multiplier: float = 1.0,
     dirichlet_alpha: float | None = 0.1,
     dirichlet_kappa: float | None = None,
-) -> jnp.ndarray:
+    time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 0,
+) -> jax.Array:
     """Compute entropy of one species at a specific time point.
 
     This function computes entropy of a species distribution at a selected
@@ -144,6 +146,10 @@ def state_entropy(
 
     Args:
         results: Batched `SimulationResults` from simulation.
+        time_kernel_bw: Event-time gradient kernel passed to `results.interpolate`.
+            Zero disables it, a positive value sets a fixed width, and 'adaptive'
+            uses saved propensities. Forward values are unchanged. Supply enough
+            trajectory coverage beyond the observation for the kernel tails.
         species_at_t: Tuple ``(species_name, t)`` where ``t`` is a scalar
             physical time.
         n_grid_points: Number of grid points. If ``None``, inferred from data.
@@ -170,7 +176,8 @@ def state_entropy(
     species_idx = results.species.index(species_name)
     t = normalize_time_scalar(t, arg_name='species_at_t[1]')
 
-    x = pytree_to_state(results.interpolate(t).x, results.species)[:, species_idx]
+    observed = results.interpolate(t, time_kernel_bw=time_kernel_bw)
+    x = pytree_to_state(observed.x, results.species)[:, species_idx]
     return entropy(
         x,
         n_grid_points=n_grid_points,
