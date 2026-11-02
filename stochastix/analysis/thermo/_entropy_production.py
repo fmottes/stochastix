@@ -9,6 +9,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 
+from ..._state_utils import pytree_to_state
 from .._utils import normalize_time_scalar
 from ._utils import (
     _propensity_trajectory,
@@ -20,6 +21,44 @@ from ._utils import (
 if typing.TYPE_CHECKING:
     from ..._simulation_results import SimulationResults
     from ...reaction import ReactionNetwork
+
+
+def _select_rate(rates: jax.Array, channels: jax.Array) -> jax.Array:
+    """Select rate entries with a masked sum in the backward pass."""
+    return jnp.sum(
+        jnp.where(channels[..., None] == jnp.arange(rates.shape[-1]), rates, 0.0),
+        axis=-1,
+    )
+
+
+def _edge_entropy_surrogate(
+    network: ReactionNetwork,
+    results: SimulationResults,
+    forward_rates: jax.Array,
+    valid: jax.Array,
+) -> jax.Array:
+    """Apply the saved reaction weights to the log ratio on each candidate edge."""
+    x = pytree_to_state(results.x, network.species)
+    changes = jnp.asarray(network.stoichiometry_matrix).T
+    reverse = network.reverse_reaction_index
+
+    def edge_increment(state, t, forward, weights, valid_step):
+        enabled = valid_step & (reverse >= 0) & (forward > 0)
+        successors = jnp.where(enabled[:, None], state + changes, state)
+        rates = eqx.filter_vmap(network.propensity_fn, in_axes=(0, None))(successors, t)
+        backward = _select_rate(rates, reverse)
+        # Disabled or singular candidate edges have no finite local surrogate.
+        finite = (
+            enabled & (backward > 0) & jnp.isfinite(backward) & jnp.isfinite(forward)
+        )
+        log_ratio = jnp.log(jnp.where(finite, forward, 1.0)) - jnp.log(
+            jnp.where(finite, backward, 1.0)
+        )
+        return jnp.sum(weights * log_ratio)
+
+    return eqx.filter_vmap(edge_increment)(
+        x[:-1], results.t[1:], forward_rates, results.reaction_weights, valid
+    )
 
 
 def entropy_production(
@@ -44,6 +83,12 @@ def entropy_production(
     identified with dissipated heat divided by ``k_B T``. Arbitrary user-defined
     kinetics need not admit that physical heat interpretation. The quantity is
     differentiable with respect to the rate parameters.
+
+    With `save_reaction_weights=True` in `stochsimsolve`, the backward pass
+    weights the complete log ratio for each candidate reaction. Each reverse
+    propensity is evaluated at that reaction's own successor state. This
+    preserves the realized jump values and gives a surrogate gradient through
+    reaction choice. Gradients of multi-event expectations can still be biased.
 
     Args:
         network: The reaction network that generated the trajectory.
@@ -72,29 +117,36 @@ def entropy_production(
     reverse_index = network.reverse_reaction_index
 
     mask = reactions >= 0
-    n_steps = reactions.shape[0]
-    rows = jnp.arange(n_steps)
     safe = jnp.maximum(reactions, 0)
 
     # Forward propensity a_rho(x[i]) from the pre-jump states a(x[0 .. N-1]).
-    a_forward = a_all[:-1][rows, safe]
+    a_forward = _select_rate(a_all[:-1], safe)
 
     # Reverse channel of the fired reaction, and its propensity a_rho_bar(x[i+1])
     # from the post-jump states a(x[1 .. N]).
     reverse_channel = reverse_index[safe]
     safe_reverse = jnp.maximum(reverse_channel, 0)
-    a_reverse = a_all[1:][rows, safe_reverse]
+    a_reverse = _select_rate(a_all[1:], safe_reverse)
 
     # Make padded gathers safe without regularizing physical zero rates. A
     # fired edge with zero reverse propensity must retain its +inf entropy cost.
-    safe_forward = jnp.where(mask, a_forward, 1.0)
-    safe_reverse = jnp.where(mask, a_reverse, 1.0)
-    log_ratio = jnp.log(safe_forward) - jnp.log(safe_reverse)
+    paired = mask & (reverse_channel >= 0)
+    log_ratio = jnp.log(jnp.where(paired, a_forward, 1.0)) - jnp.log(
+        jnp.where(paired, a_reverse, 1.0)
+    )
 
     # A fired reaction with no reverse channel produces infinite entropy.
     increments = jnp.where(reverse_channel >= 0, log_ratio, jnp.inf)
     # Padded/invalid steps do not contribute.
     increments = jnp.where(mask, increments, 0.0)
+
+    if results.reaction_weights is not None:
+        surrogate = _edge_entropy_surrogate(
+            network, results, a_all[:-1], paired & jnp.isfinite(increments)
+        )
+        increments = jax.lax.stop_gradient(increments) + (
+            surrogate - jax.lax.stop_gradient(surrogate)
+        )
 
     if per_step:
         return increments

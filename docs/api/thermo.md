@@ -17,6 +17,33 @@ exposes `ReactionNetwork.reverse_reaction_index` and
 
 ## Entropy Production
 
+To differentiate entropy production through reaction selection, save the
+reaction weights from a solver with an exact forward pass.
+
+```python
+import equinox as eqx
+import stochastix as stx
+from stochastix.analysis import thermo
+
+
+@eqx.filter_value_and_grad
+def loss(network, key, x0):
+    trajectory = stx.stochsimsolve(
+        key,
+        network,
+        x0,
+        T=10.0,
+        solver=stx.DifferentiableDirect(reaction_grad='reinmax'),
+        save_reaction_weights=True,
+    )
+    return thermo.entropy_production_rate(network, trajectory)
+```
+
+The solver records one weight per reaction per interval. The forward value
+uses the fired reaction. The backward pass weights the complete log propensity
+ratio for each candidate, evaluating its reverse rate at its own successor
+state. These derivatives are a surrogate for multi-event ensemble gradients.
+
 ---
 ::: stochastix.analysis.thermo.entropy_production
 

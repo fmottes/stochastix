@@ -235,6 +235,16 @@ def schnakenberg_epr(
         The steady-state trajectory estimator of the Schnakenberg entropy
         production rate (scalar, nats per unit time).
     """
+    if results.reaction_weights is not None:
+        from ._entropy_production import entropy_production_rate
+
+        return entropy_production_rate(
+            network,
+            results,
+            require_reversible=require_reversible,
+            use_stored_propensities=use_stored_propensities,
+        )
+
     edge_affinity = affinities(
         network,
         results,

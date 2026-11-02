@@ -10,7 +10,7 @@ import jax.numpy as jnp
 
 from ._simulation_results import SimulationResults
 from ._state_utils import pytree_to_state, state_to_pytree
-from .solvers import DifferentiableDirect, SimulationStep
+from .solvers import DifferentiableDirect, DifferentiableFirstReaction, SimulationStep
 
 if typing.TYPE_CHECKING:
     from .controllers import AbstractController
@@ -31,6 +31,7 @@ def _do_step_logic(
     solver_state: typing.Any,
     key_step: jnp.ndarray,
     reaction_null: jnp.ndarray,
+    save_reaction_weights: bool = False,
 ):
     """Core stepping logic that performs one simulation step.
 
@@ -44,10 +45,14 @@ def _do_step_logic(
 
     def _do_step(args):
         network, t, x, a, solver_state, key_solver = args
+        if save_reaction_weights:
+            return solver._step_with_weights(
+                network, t, x, a, solver_state, key=key_solver
+            )
         step_result, solver_state_new = solver.step(
             network, t, x, a, solver_state, key=key_solver
         )
-        return step_result, solver_state_new
+        return step_result, solver_state_new, None
 
     def _stop(args):
         _network, _t, x, a, solver_state, _key_solver = args
@@ -61,14 +66,16 @@ def _do_step_logic(
             propensities=a_stop,
         )
 
-        return step_result, solver_state
+        return step_result, solver_state, a_stop if save_reaction_weights else None
 
     do_step = jnp.logical_and(t < T, a0 > 0)
 
     # stop if time is up or if there are no more reactions
     step_args = (network, t, x, a, solver_state, key_solver)
 
-    step_result, solver_state_new = jax.lax.cond(do_step, _do_step, _stop, step_args)
+    step_result, solver_state_new, weights = jax.lax.cond(
+        do_step, _do_step, _stop, step_args
+    )
 
     if controller is not None:
         step_result, controller_state = controller.step(
@@ -87,6 +94,8 @@ def _do_step_logic(
     new_x = jnp.where(would_exceed_T, x, step_result.x_new)
     new_r = jnp.where(would_exceed_T, reaction_null, step_result.reaction_idx)
     new_a = jnp.where(would_exceed_T, jnp.zeros_like(a), step_result.propensities)
+    if weights is not None:
+        weights = jnp.where(new_r >= 0, weights, 0.0)
 
     new_step_result = SimulationStep(
         x_new=new_x,
@@ -95,7 +104,7 @@ def _do_step_logic(
         propensities=new_a,
     )
 
-    return new_t, new_x, controller_state, solver_state_new, new_step_result
+    return new_t, new_x, controller_state, solver_state_new, new_step_result, weights
 
 
 def _initialize_simulation(
@@ -150,6 +159,8 @@ def stochsimsolve(
     save_trajectory: bool = True,
     save_propensities: bool = True,
     checkpoint: bool = False,
+    *,
+    save_reaction_weights: bool = False,
 ) -> SimulationResults:
     """Run a stochastic simulation of a reaction network.
 
@@ -181,6 +192,10 @@ def stochsimsolve(
                where the computational graph per step is large.
             When `save_trajectory=True`, checkpointing is especially efficient as
             recomputation starts from the stored trajectory states. Defaults to False.
+        save_reaction_weights: Save straight-through reaction choices for entropy
+            gradients. Requires a full trajectory and an exact forward
+            `DifferentiableDirect` or `DifferentiableFirstReaction` solver.
+            Defaults to False.
 
     Returns:
         SimulationResults. An object with the following attributes:
@@ -226,6 +241,15 @@ def stochsimsolve(
     key_loop, t0, x_init, a_init, solver_state0, controller_state, reaction_null = (
         _initialize_simulation(key, network, solver, controller, x0, t0)
     )
+    if save_reaction_weights and (
+        not save_trajectory
+        or not solver.is_exact_solver
+        or not isinstance(solver, (DifferentiableDirect, DifferentiableFirstReaction))
+    ):
+        raise ValueError(
+            'save_reaction_weights requires a full trajectory and an exact forward '
+            'DifferentiableDirect or DifferentiableFirstReaction solver.'
+        )
 
     #########################################################
     # Simulation Loop using scan (supports differentiation)
@@ -238,19 +262,25 @@ def stochsimsolve(
         # Recursive split for consistent random sequence
         key_step, key_next = jax.random.split(key_current)
 
-        new_t, new_x, new_controller_state, new_solver_state, new_step_result = (
-            _do_step_logic(
-                network,
-                solver,
-                controller,
-                T,
-                t,
-                x,
-                controller_state,
-                solver_state,
-                key_step,
-                reaction_null,
-            )
+        (
+            new_t,
+            new_x,
+            new_controller_state,
+            new_solver_state,
+            new_step_result,
+            weights,
+        ) = _do_step_logic(
+            network,
+            solver,
+            controller,
+            T,
+            t,
+            x,
+            controller_state,
+            solver_state,
+            key_step,
+            reaction_null,
+            save_reaction_weights,
         )
         new_carry = (new_t, new_x, new_controller_state, new_solver_state, key_next)
 
@@ -260,14 +290,9 @@ def stochsimsolve(
 
         if not save_propensities:
             # Create a step result without propensities to save memory
-            new_step_result = SimulationStep(
-                x_new=new_step_result.x_new,
-                dt=new_step_result.dt,
-                reaction_idx=new_step_result.reaction_idx,
-                propensities=None,
-            )
+            new_step_result = new_step_result._replace(propensities=None)
 
-        return new_carry, new_step_result
+        return new_carry, (new_step_result, weights)
 
     if checkpoint:
         _step = jax.checkpoint(_step)
@@ -282,6 +307,7 @@ def stochsimsolve(
 
     if save_trajectory:
         # Mode: Full trajectory
+        history, reaction_weights = history
         x_h = history.x_new
         dt_h = history.dt
         a_h = history.propensities
@@ -306,6 +332,7 @@ def stochsimsolve(
             t=ts,
             propensities=a_h,  # Already None when save_propensities=False
             reactions=r_h,
+            reaction_weights=reaction_weights,
             time_overflow=time_overflow,
             species=network.species,
         )
@@ -416,19 +443,24 @@ def faststochsimsolve(
     def _body(carry):
         t, x, controller_state, solver_state, step_count, key_current = carry
         key_step, key_next = jax.random.split(key_current)
-        new_t, new_x, new_controller_state, new_solver_state, _new_step_result = (
-            _do_step_logic(
-                network,
-                solver,
-                controller,
-                T,
-                t,
-                x,
-                controller_state,
-                solver_state,
-                key_step,
-                reaction_null,
-            )
+        (
+            new_t,
+            new_x,
+            new_controller_state,
+            new_solver_state,
+            _new_step_result,
+            _weights,
+        ) = _do_step_logic(
+            network,
+            solver,
+            controller,
+            T,
+            t,
+            x,
+            controller_state,
+            solver_state,
+            key_step,
+            reaction_null,
         )
         return (
             new_t,

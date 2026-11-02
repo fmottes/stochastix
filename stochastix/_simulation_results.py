@@ -97,6 +97,8 @@ class SimulationResults(eqx.Module):
             full trajectory, or (2,) for initial/final only mode.
         propensities: Reaction propensities at each time step, or None if not saved.
         reactions: Index of reactions that occurred at each step, or None if not saved.
+        reaction_weights: Straight-through one-hot weights per interval, when saved.
+            Intervals without a reaction have all-zero weights.
         time_overflow: True if simulation stopped due to reaching max_steps before time T.
         species: Names of the species in the simulation.
 
@@ -146,6 +148,7 @@ class SimulationResults(eqx.Module):
     reactions: jnp.ndarray
     time_overflow: bool
     species: tuple[str, ...]
+    reaction_weights: jax.Array | None
 
     def __init__(
         self,
@@ -155,6 +158,8 @@ class SimulationResults(eqx.Module):
         reactions: jnp.ndarray | None = None,
         time_overflow: bool | None = None,
         species: tuple[str, ...] | None = None,
+        *,
+        reaction_weights: jax.Array | None = None,
     ):
         self.x = x
         self.t = t
@@ -162,6 +167,7 @@ class SimulationResults(eqx.Module):
         self.reactions = reactions
         self.time_overflow = time_overflow
         self.species = species
+        self.reaction_weights = reaction_weights
 
     def __getitem__(self, idx: int | slice | jnp.ndarray) -> SimulationResults:
         """Allows indexing into a batch of simulation results.
@@ -216,6 +222,7 @@ class SimulationResults(eqx.Module):
             reactions=_apply_idx(self.reactions),
             time_overflow=_apply_idx(self.time_overflow, is_scalar=True),
             species=self.species,
+            reaction_weights=_apply_idx(self.reaction_weights),
         )
 
     def clean(self) -> SimulationResults:
@@ -299,7 +306,18 @@ class SimulationResults(eqx.Module):
         a = self.propensities[mask] if self.propensities is not None else None
         r = self.reactions[mask]
 
-        return SimulationResults(x_cleaned, t, a, r, self.time_overflow, self.species)
+        weights = (
+            self.reaction_weights[mask] if self.reaction_weights is not None else None
+        )
+        return SimulationResults(
+            x_cleaned,
+            t,
+            a,
+            r,
+            self.time_overflow,
+            self.species,
+            reaction_weights=weights,
+        )
 
     def interpolate(
         self,

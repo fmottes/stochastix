@@ -337,6 +337,11 @@ class DifferentiableDirect(AbstractStochasticSolver):
             Tuple containing the SimulationStep result and the new solver
             state (None for this stateless solver).
         """
+        step, state, _ = self._step_with_weights(network, t, x, a, state, key=key)
+        return step, state
+
+    def _step_with_weights(self, network, t, x, a, state, *, key):
+        """Return the step and its straight-through reaction choice."""
         key_dt, key_gumbel = jax.random.split(key)
 
         stoichiometry_matrix = jnp.asarray(network.stoichiometry_matrix)
@@ -364,6 +369,10 @@ class DifferentiableDirect(AbstractStochasticSolver):
         if self.is_exact_solver:
             # Exact forward pass with straight-through estimator
             reaction_idx = r_hard
+            hard_weights = jax.nn.one_hot(r_hard, a.size, dtype=a.dtype)
+            saved_weights = hard_weights + (
+                reaction_weights - jax.lax.stop_gradient(reaction_weights)
+            )
 
             # compute delta_x for the exact forward pass
             delta_x_hard = self._delta_x(stoichiometry_matrix, r_hard)
@@ -376,6 +385,7 @@ class DifferentiableDirect(AbstractStochasticSolver):
             # Soft forward pass (inexact)
             x_new = x + delta_x_soft
             reaction_idx = reaction_weights
+            saved_weights = None
 
         step_result = SimulationStep(
             x_new=x_new,
@@ -384,7 +394,7 @@ class DifferentiableDirect(AbstractStochasticSolver):
             propensities=a,
         )
 
-        return step_result, None
+        return step_result, None, saved_weights
 
 
 #####################################################################################
@@ -519,6 +529,11 @@ class DifferentiableFirstReaction(AbstractStochasticSolver):
             Tuple containing the SimulationStep result and the new solver
             state (None for this stateless solver).
         """
+        step, state, _ = self._step_with_weights(network, t, x, a, state, key=key)
+        return step, state
+
+    def _step_with_weights(self, network, t, x, a, state, *, key):
+        """Return the step and its straight-through reaction choice."""
         stoichiometry_matrix = jnp.asarray(network.stoichiometry_matrix)
 
         # Sample candidate firing times
@@ -552,6 +567,10 @@ class DifferentiableFirstReaction(AbstractStochasticSolver):
         if self.is_exact_solver:
             # Exact forward pass with straight-through estimator
             reaction_idx = r_hard
+            hard_weights = jax.nn.one_hot(r_hard, a.size, dtype=a.dtype)
+            saved_weights = hard_weights + (
+                reaction_weights - jax.lax.stop_gradient(reaction_weights)
+            )
 
             # compute delta_x for the exact forward pass
             delta_x_hard = self._delta_x(stoichiometry_matrix, r_hard)
@@ -570,6 +589,7 @@ class DifferentiableFirstReaction(AbstractStochasticSolver):
             x_new = x + delta_x_soft
             dt = dt_soft
             reaction_idx = reaction_weights
+            saved_weights = None
 
         step_result = SimulationStep(
             x_new=x_new,
@@ -577,4 +597,4 @@ class DifferentiableFirstReaction(AbstractStochasticSolver):
             reaction_idx=reaction_idx,
             propensities=a,
         )
-        return step_result, None
+        return step_result, None, saved_weights

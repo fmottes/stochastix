@@ -47,6 +47,93 @@ def _simulate(network, x0, key, T, solver=None, **kwargs):
     return stx.stochsimsolve(key, network, x0, T=T, solver=solver, **kwargs)
 
 
+@pytest.mark.parametrize(
+    'solver_class', [stx.DifferentiableDirect, stx.DifferentiableFirstReaction]
+)
+@pytest.mark.parametrize('save_propensities', [False, True])
+def test_entropy_reaction_gradient_through_two_jumps(solver_class, save_propensities):
+    keys = jax.random.split(jax.random.key(22), 16)
+    solver = solver_class(reaction_grad='reinmax')
+
+    def simulate(theta, save_weights):
+        network = stx.ReactionNetwork(
+            [
+                stx.Reaction('0 -> A', stx.kinetics.MassAction(theta, jnp.exp)),
+                stx.Reaction('A -> 0', stx.kinetics.MassAction(1.0)),
+            ]
+        )
+        results = eqx.filter_vmap(
+            lambda key: stx.stochsimsolve(
+                key,
+                network,
+                jnp.array([1.0]),
+                T=100.0,
+                max_steps=2,
+                solver=solver,
+                save_propensities=save_propensities,
+                save_reaction_weights=save_weights,
+            )
+        )(keys)
+        return network, results
+
+    def increments(theta, save_weights):
+        network, results = simulate(theta, save_weights)
+        return eqx.filter_vmap(
+            lambda result: thermo.entropy_production(
+                network,
+                result,
+                per_step=True,
+                use_stored_propensities=save_propensities,
+            )
+        )(results)
+
+    theta = jnp.log(2.0)
+    _, results = simulate(theta, True)
+    paths = jnp.all(results.reactions == jnp.array([1, 0]), axis=1)
+    assert paths.any()
+    assert jnp.array_equal(
+        results.reaction_weights, jax.nn.one_hot(results.reactions, 2)
+    )
+    assert jnp.array_equal(increments(theta, True), increments(theta, False))
+
+    def loss(theta):
+        ep = increments(theta, True).sum(axis=1)
+        return jnp.where(paths, ep, 0.0).sum() / paths.sum()
+
+    value, gradient = eqx.filter_jit(eqx.filter_value_and_grad(loss))(theta)
+    # The death/birth path is 1 -> 0 -> 1. The first jump's ReinMax
+    # birth-weight derivative is 1/3, so the tangent of the state at zero
+    # is 2/3. The first log ratio contributes -1 + log(2)/3 and the
+    # second contributes 1 - 2/3.
+    assert value == pytest.approx(0.0, abs=1e-6)
+    assert gradient == pytest.approx((jnp.log(2.0) - 2.0) / 3.0, abs=1e-6)
+
+
+def test_reaction_weights_survive_indexing_and_cleaning():
+    network = _reversible_pair()
+    keys = jax.random.split(jax.random.key(19), 2)
+    batch = eqx.filter_vmap(
+        lambda key: stx.stochsimsolve(
+            key,
+            network,
+            jnp.array([3.0, 2.0]),
+            T=1.0,
+            max_steps=64,
+            save_reaction_weights=True,
+        )
+    )(keys)
+    result = batch[0]
+    mask = result.reactions >= 0
+    assert mask.any() and (~mask).any()
+    assert jnp.all(result.reaction_weights[~mask] == 0.0)
+    cleaned = result.clean()
+    keep = mask | (jnp.diff(result.t) > 0)
+    assert jnp.array_equal(cleaned.reaction_weights, result.reaction_weights[keep])
+    assert thermo.schnakenberg_epr(network, cleaned) == pytest.approx(
+        thermo.entropy_production_rate(network, result)
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Reverse-reaction pairing (structural primitive)
 # --------------------------------------------------------------------------- #
