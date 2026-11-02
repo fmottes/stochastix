@@ -31,7 +31,7 @@ def dummy_results():
 
 
 def test_autocorrelation_runs(dummy_results):
-    lags, autocorrs = autocorrelation(dummy_results)
+    lags, autocorrs = autocorrelation(dummy_results, time_kernel_bw=0)
     assert lags is not None
     assert autocorrs is not None
     assert lags.shape[0] == autocorrs.shape[0]
@@ -39,29 +39,35 @@ def test_autocorrelation_runs(dummy_results):
 
 
 def test_autocorrelation_species_selection(dummy_results):
-    _lags, autocorrs = autocorrelation(dummy_results, species='sin')
+    _lags, autocorrs = autocorrelation(dummy_results, species='sin', time_kernel_bw=0)
     assert autocorrs.shape[1] == 1
 
-    _lags, autocorrs = autocorrelation(dummy_results, species=('sin', 'cos'))
+    _lags, autocorrs = autocorrelation(
+        dummy_results, species=('sin', 'cos'), time_kernel_bw=0
+    )
     assert autocorrs.shape[1] == 2
 
 
 def test_autocorrelation_constant_signal(dummy_results):
-    _lags, autocorrs = autocorrelation(dummy_results, species='const')
+    _lags, autocorrs = autocorrelation(dummy_results, species='const', time_kernel_bw=0)
     # Autocorrelation of a constant signal should be close to 0
     assert jnp.allclose(autocorrs[:, 0], 0.0, atol=1e-6)
 
 
 def test_cross_correlation_runs(dummy_results):
-    lags, cross_corrs = cross_correlation(dummy_results, 'sin', 'cos')
+    lags, cross_corrs = cross_correlation(dummy_results, 'sin', 'cos', time_kernel_bw=0)
     assert lags is not None
     assert cross_corrs is not None
     assert lags.shape[0] == cross_corrs.shape[0]
 
 
 def test_cross_correlation_with_self(dummy_results):
-    lags_cross, cross_corrs = cross_correlation(dummy_results, 'sin', 'sin')
-    _lags_auto, auto_corrs = autocorrelation(dummy_results, species='sin')
+    lags_cross, cross_corrs = cross_correlation(
+        dummy_results, 'sin', 'sin', time_kernel_bw=0
+    )
+    _lags_auto, auto_corrs = autocorrelation(
+        dummy_results, species='sin', time_kernel_bw=0
+    )
 
     # cross-correlation gives for negative and positive lags
     # autocorrelation gives only for positive lags

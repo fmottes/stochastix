@@ -156,7 +156,7 @@ def state_mutual_info(
     bw_multiplier: float = 1.0,
     dirichlet_alpha: float | None = 0.1,
     dirichlet_kappa: float | None = None,
-    time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 0,
+    time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 'adaptive',
 ) -> jax.Array:
     """Compute the mutual information between two species at specific time points.
 
@@ -184,7 +184,7 @@ def state_mutual_info(
             This should contain a batch of simulation trajectories (e.g., from
             vmapping over `stochsimsolve`).
         time_kernel_bw: Event-time gradient kernel passed to `results.interpolate`.
-            Zero disables it, a positive value sets a fixed width, and 'adaptive'
+            Zero disables it, a positive value sets a fixed width, and 'adaptive' (default)
             uses saved propensities. Forward values are unchanged. Supply enough
             trajectory coverage beyond the observations for the kernel tails.
         species_at_t: An iterable containing two tuples, where each tuple consists

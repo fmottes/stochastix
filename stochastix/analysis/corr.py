@@ -31,7 +31,7 @@ def autocorrelation(
     n_points: int = 1000,
     species: str | tuple[str, ...] = '*',
     *,
-    time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 0,
+    time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 'adaptive',
 ) -> tuple[jax.Array, jax.Array]:
     """Compute the autocorrelation of species trajectories.
 
@@ -45,7 +45,7 @@ def autocorrelation(
         species: The species for which to compute the autocorrelation. Can be
             "*" for all species, or a string or tuple of strings for specific species.
         time_kernel_bw: Event-time gradient kernel passed to `results.interpolate`.
-            Zero disables it, a positive value sets a fixed width, and 'adaptive'
+            Zero disables it, a positive value sets a fixed width, and 'adaptive' (default)
             uses saved propensities. Forward values are unchanged. The grid spans
             the saved trajectory; kernels near its boundaries have truncated tails.
 
@@ -101,7 +101,7 @@ def cross_correlation(
     species2: str,
     n_points: int = 1000,
     *,
-    time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 0,
+    time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 'adaptive',
 ) -> tuple[jax.Array, jax.Array]:
     """Compute the cross-correlation between two species trajectories.
 
@@ -114,7 +114,7 @@ def cross_correlation(
         species2: The name of the second species.
         n_points: The number of points for the interpolation grid.
         time_kernel_bw: Event-time gradient kernel passed to `results.interpolate`.
-            Zero disables it, a positive value sets a fixed width, and 'adaptive'
+            Zero disables it, a positive value sets a fixed width, and 'adaptive' (default)
             uses saved propensities. Forward values are unchanged. The grid spans
             the saved trajectory; kernels near its boundaries have truncated tails.
 

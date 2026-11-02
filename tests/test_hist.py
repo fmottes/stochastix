@@ -39,24 +39,30 @@ def test_state_kde_t_none_uses_final_recorded_state(bandwidth):
         time_kernel_bw=bandwidth,
     )
     grid_final_time, values_final_time = state_kde(
-        results, 'A', n_grid_points=8, min_max_vals=(0.0, 13.0), t=20.0
+        results,
+        'A',
+        n_grid_points=8,
+        min_max_vals=(0.0, 13.0),
+        t=20.0,
+        time_kernel_bw=0,
     )
     assert jnp.allclose(grid_none, grid_final_time)
     assert jnp.allclose(values_none, values_final_time)
 
 
-@pytest.mark.parametrize('bandwidth', [0.3, 'adaptive'])
+@pytest.mark.parametrize('bandwidth', [None, 0.3, 'adaptive'])
 @pytest.mark.parametrize('jit', [False, True])
 def test_state_kde_time_kernel_requires_explicit_time(bandwidth, jit):
     results = _make_batched_results_for_time_tests()
 
     def evaluate(results):
+        kwargs = {} if bandwidth is None else {'time_kernel_bw': bandwidth}
         return state_kde(
             results,
             'A',
             n_grid_points=8,
             min_max_vals=(0.0, 13.0),
-            time_kernel_bw=bandwidth,
+            **kwargs,
         )
 
     if jit:
@@ -78,7 +84,9 @@ def test_state_kde_dynamic_zero_bandwidth_needs_no_history():
             time_kernel_bw=bandwidth,
         )[1]
 
-    expected = state_kde(results, 'A', n_grid_points=8, min_max_vals=(0.0, 13.0))[1]
+    expected = state_kde(
+        results, 'A', n_grid_points=8, min_max_vals=(0.0, 13.0), time_kernel_bw=0
+    )[1]
     np.testing.assert_array_equal(evaluate(jnp.array(0.0)), expected)
     with pytest.raises(
         (ValueError, eqx.EquinoxRuntimeError),
@@ -137,10 +145,15 @@ def test_state_kde_integral_timestamps_warn_and_match_float_time(t_scalar):
     results = _make_batched_results_for_time_tests()
     with pytest.warns(FutureWarning):
         grid_int, values_int = state_kde(
-            results, 'A', n_grid_points=8, min_max_vals=(0.0, 13.0), t=t_scalar
+            results,
+            'A',
+            n_grid_points=8,
+            min_max_vals=(0.0, 13.0),
+            t=t_scalar,
+            time_kernel_bw=0,
         )
     grid_float, values_float = state_kde(
-        results, 'A', n_grid_points=8, min_max_vals=(0.0, 13.0), t=2.0
+        results, 'A', n_grid_points=8, min_max_vals=(0.0, 13.0), t=2.0, time_kernel_bw=0
     )
     assert jnp.allclose(grid_int, grid_float)
     assert jnp.allclose(values_int, values_float)
@@ -158,11 +171,18 @@ def test_state_kde_filter_jit_accepts_jax_scalar_time():
 
     @eqx.filter_jit
     def _kde(t):
-        return state_kde(results, 'A', n_grid_points=8, min_max_vals=(0.0, 13.0), t=t)
+        return state_kde(
+            results,
+            'A',
+            n_grid_points=8,
+            min_max_vals=(0.0, 13.0),
+            t=t,
+            time_kernel_bw=0,
+        )
 
     t = jnp.asarray(10.0, dtype=jnp.float32)
     grid_eager, values_eager = state_kde(
-        results, 'A', n_grid_points=8, min_max_vals=(0.0, 13.0), t=t
+        results, 'A', n_grid_points=8, min_max_vals=(0.0, 13.0), t=t, time_kernel_bw=0
     )
     grid_jit, values_jit = _kde(t)
     assert jnp.allclose(grid_eager, grid_jit)

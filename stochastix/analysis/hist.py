@@ -28,7 +28,7 @@ def state_kde(
     bw_multiplier: float = 1.0,
     dirichlet_alpha: float | None = 0.1,
     dirichlet_kappa: float | None = None,
-    time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 0,
+    time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 'adaptive',
 ) -> tuple[jax.Array, jax.Array]:
     """Compute a kernel density estimate (KDE) of the state distribution.
 
@@ -50,8 +50,8 @@ def state_kde(
             Riemann sum over the grid integrates to 1. If ``False``, returns
             unnormalized counts/weights per grid point.
         t: Scalar physical time at which to compute the KDE. If ``None``
-            (default), uses the final recorded state. An explicit time is
-            required when `time_kernel_bw` enables an event-time kernel.
+            (default), uses the final recorded state with `time_kernel_bw=0`.
+            An explicit time is required with the default adaptive kernel.
         kde_type: Type of kernel to use. One of ``'triangular'``, ``'exponential'``,
             ``'gaussian'``, or ``'wendland_c2'``. Default is ``'wendland_c2'``.
         bw_multiplier: Kernel bandwidth multiplier. Controls the width of the
@@ -64,7 +64,7 @@ def state_kde(
             K is the number of grid points. If ``None``, uses ``dirichlet_alpha``
             instead.
         time_kernel_bw: Event-time gradient kernel passed to `results.interpolate`.
-            Zero disables it, a positive value sets a fixed width, and 'adaptive'
+            Zero disables it, a positive value sets a fixed width, and 'adaptive' (default)
             uses saved propensities. Forward values are unchanged. Supply enough
             trajectory coverage beyond the observation for the kernel tails.
 
@@ -88,7 +88,8 @@ def state_kde(
 
     if t is None:
         message = (
-            'An explicit observation time t is required when using time_kernel_bw.'
+            'An explicit observation time t is required when using time_kernel_bw. '
+            'Pass time_kernel_bw=0 to read the final recorded state without a time kernel.'
         )
         if isinstance(time_kernel_bw, str) or (
             not eqx.is_array(time_kernel_bw) and time_kernel_bw != 0

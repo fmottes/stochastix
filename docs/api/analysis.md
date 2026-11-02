@@ -2,6 +2,12 @@
 
 The analysis module provides functions for analyzing simulation results, including correlation analysis, kernel density estimation (KDE), entropy estimation, and mutual information computation.
 
+Helpers that interpolate trajectories default to `time_kernel_bw='adaptive'`.
+They require full saved event histories and propensities; pass `time_kernel_bw=0`
+for ordinary forward-fill reads, ODE results, or trajectories without these fields.
+`state_kde` additionally requires an explicit `t` when its time kernel is enabled.
+The KDE `bw_multiplier` remains `1.0`; it is separate from the time kernel.
+
 ## Correlation Functions
 
 ---

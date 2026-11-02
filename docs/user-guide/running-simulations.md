@@ -124,6 +124,17 @@ interp = results.interpolate(t_grid, time_kernel_bw=0)
 Kernel weights are evaluated in batches of at most 32 observation times and recomputed during the backward
 pass to bound temporary memory.
 
+Analysis helpers (`state_kde`, `state_entropy`, `state_mutual_info`,
+`autocorrelation`, and `cross_correlation`) also default to adaptive time kernels.
+Use `time_kernel_bw=0` for data without saved propensities and event history.
+`state_kde` requires an explicit observation time with an enabled kernel:
+
+```python
+grid, density = stx.analysis.state_kde(results, 'A', t=50.0)
+# Read final recorded states without an event-time gradient:
+grid, density = stx.analysis.state_kde(results, 'A', time_kernel_bw=0)
+```
+
 ## Plotting trajectories
 
 ```python

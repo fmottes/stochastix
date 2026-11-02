@@ -139,6 +139,7 @@ def test_state_entropy_integral_timestamps_warn_and_match_float_time(t_scalar):
         'min_max_vals': (0.0, 13.0),
         'dirichlet_alpha': 0.1,
         'dirichlet_kappa': None,
+        'time_kernel_bw': 0,
     }
     with pytest.warns(FutureWarning):
         h_int = state_entropy(results, ('A', t_scalar), **kwargs)
@@ -158,6 +159,7 @@ def test_state_entropy_filter_jit_accepts_jax_scalar_time():
             min_max_vals=(0.0, 13.0),
             dirichlet_alpha=0.1,
             dirichlet_kappa=None,
+            time_kernel_bw=0,
         )
 
     t = jnp.asarray(2.0, dtype=jnp.float32)
@@ -168,6 +170,7 @@ def test_state_entropy_filter_jit_accepts_jax_scalar_time():
         min_max_vals=(0.0, 13.0),
         dirichlet_alpha=0.1,
         dirichlet_kappa=None,
+        time_kernel_bw=0,
     )
     jitted = _h(t)
     assert jnp.isclose(eager, jitted)

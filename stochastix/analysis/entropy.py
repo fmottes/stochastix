@@ -125,7 +125,7 @@ def state_entropy(
     bw_multiplier: float = 1.0,
     dirichlet_alpha: float | None = 0.1,
     dirichlet_kappa: float | None = None,
-    time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 0,
+    time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 'adaptive',
 ) -> jax.Array:
     """Compute entropy of one species at a specific time point.
 
@@ -147,7 +147,7 @@ def state_entropy(
     Args:
         results: Batched `SimulationResults` from simulation.
         time_kernel_bw: Event-time gradient kernel passed to `results.interpolate`.
-            Zero disables it, a positive value sets a fixed width, and 'adaptive'
+            Zero disables it, a positive value sets a fixed width, and 'adaptive' (default)
             uses saved propensities. Forward values are unchanged. Supply enough
             trajectory coverage beyond the observation for the kernel tails.
         species_at_t: Tuple ``(species_name, t)`` where ``t`` is a scalar

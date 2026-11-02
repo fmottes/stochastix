@@ -170,6 +170,7 @@ def test_state_mutual_info_integral_timestamps_warn_and_match_float_time(t_scala
         'min_max_vals2': (0.0, 13.0),
         'dirichlet_alpha': 0.1,
         'dirichlet_kappa': None,
+        'time_kernel_bw': 0,
     }
     with pytest.warns(FutureWarning):
         mi_int = state_mutual_info(
@@ -188,6 +189,7 @@ def test_state_mutual_info_uses_time_not_index_for_integral_timestamps():
         'min_max_vals2': (0.0, 13.0),
         'dirichlet_alpha': 0.1,
         'dirichlet_kappa': None,
+        'time_kernel_bw': 0,
     }
     mi_index_like = state_mutual_info(results, [('A', 2.0), ('A', 2.0)], **kwargs)
     mi_real_time = state_mutual_info(results, [('A', 10.0), ('A', 10.0)], **kwargs)
@@ -220,6 +222,7 @@ def test_state_mutual_info_filter_jit_accepts_jax_scalar_times():
             min_max_vals2=(0.0, 13.0),
             dirichlet_alpha=0.1,
             dirichlet_kappa=None,
+            time_kernel_bw=0,
         )
 
     t1 = jnp.asarray(2.0, dtype=jnp.float32)
@@ -233,6 +236,7 @@ def test_state_mutual_info_filter_jit_accepts_jax_scalar_times():
         min_max_vals2=(0.0, 13.0),
         dirichlet_alpha=0.1,
         dirichlet_kappa=None,
+        time_kernel_bw=0,
     )
     jitted = _mi(t1, t2)
     assert jnp.isclose(eager, jitted)
