@@ -37,9 +37,7 @@ def _results():
 
 
 @pytest.mark.parametrize('bandwidth', [0.4, 'adaptive'])
-@pytest.mark.parametrize(
-    'analysis', ['kde', 'kde_final', 'entropy', 'mi', 'auto', 'cross']
-)
+@pytest.mark.parametrize('analysis', ['kde', 'entropy', 'mi', 'auto', 'cross'])
 def test_analysis_time_kernel_matches_explicit_interpolation(analysis, bandwidth):
     results = _results()
     if analysis in ('auto', 'cross'):
@@ -47,15 +45,10 @@ def test_analysis_time_kernel_matches_explicit_interpolation(analysis, bandwidth
     grid = {'n_grid_points': 6, 'min_max_vals': (0.0, 5.0), 'bw_multiplier': 1.5}
 
     def evaluate(r, bw, explicit=False):
-        if analysis in ('kde', 'kde_final'):
-            t = None if analysis == 'kde_final' else 1.7
+        if analysis == 'kde':
+            t = 1.7
             if explicit:
-                if t is None:
-                    x = eqx.filter_vmap(
-                        lambda r: r.interpolate(r.t[-1], time_kernel_bw=bw).x[0]
-                    )(r)
-                else:
-                    x = r.interpolate(jnp.array(t), time_kernel_bw=bw).x[:, 0]
+                x = r.interpolate(jnp.array(t), time_kernel_bw=bw).x[:, 0]
                 return kde(x, **grid)[1]
             return state_kde(r, 'A', t=t, time_kernel_bw=bw, **grid)[1][:, 0]
         if analysis == 'entropy':

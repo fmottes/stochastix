@@ -1,8 +1,10 @@
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import stochastix as stx
 from stochastix import SimulationResults
 from stochastix.analysis.hist import state_kde
 
@@ -25,16 +27,109 @@ def _make_batched_results_for_time_tests() -> SimulationResults:
     )
 
 
-def test_state_kde_t_none_uses_final_recorded_state():
+@pytest.mark.parametrize('bandwidth', [0, jnp.array(0.0)])
+def test_state_kde_t_none_uses_final_recorded_state(bandwidth):
     results = _make_batched_results_for_time_tests()
     grid_none, values_none = state_kde(
-        results, 'A', n_grid_points=8, min_max_vals=(0.0, 13.0), t=None
+        results,
+        'A',
+        n_grid_points=8,
+        min_max_vals=(0.0, 13.0),
+        t=None,
+        time_kernel_bw=bandwidth,
     )
     grid_final_time, values_final_time = state_kde(
         results, 'A', n_grid_points=8, min_max_vals=(0.0, 13.0), t=20.0
     )
     assert jnp.allclose(grid_none, grid_final_time)
     assert jnp.allclose(values_none, values_final_time)
+
+
+@pytest.mark.parametrize('bandwidth', [0.3, 'adaptive'])
+@pytest.mark.parametrize('jit', [False, True])
+def test_state_kde_time_kernel_requires_explicit_time(bandwidth, jit):
+    results = _make_batched_results_for_time_tests()
+
+    def evaluate(results):
+        return state_kde(
+            results,
+            'A',
+            n_grid_points=8,
+            min_max_vals=(0.0, 13.0),
+            time_kernel_bw=bandwidth,
+        )
+
+    if jit:
+        evaluate = eqx.filter_jit(evaluate)
+    with pytest.raises(ValueError, match='explicit observation time t is required'):
+        evaluate(results)
+
+
+def test_state_kde_dynamic_zero_bandwidth_needs_no_history():
+    results = _make_batched_results_for_time_tests()
+
+    @eqx.filter_jit
+    def evaluate(bandwidth):
+        return state_kde(
+            results,
+            'A',
+            n_grid_points=8,
+            min_max_vals=(0.0, 13.0),
+            time_kernel_bw=bandwidth,
+        )[1]
+
+    expected = state_kde(results, 'A', n_grid_points=8, min_max_vals=(0.0, 13.0))[1]
+    np.testing.assert_array_equal(evaluate(jnp.array(0.0)), expected)
+    with pytest.raises(
+        (ValueError, eqx.EquinoxRuntimeError),
+        match='explicit observation time t is required',
+    ):
+        evaluate(jnp.array(0.3)).block_until_ready()
+
+
+def test_state_kde_fixed_time_preserves_absorbing_process_time_gradient():
+    keys = jax.random.split(jax.random.key(91), 32)
+
+    def loss(log_rate, bandwidth):
+        network = stx.ReactionNetwork(
+            [
+                stx.Reaction(
+                    'A -> 0', stx.kinetics.MassAction(log_rate, transform=jnp.exp)
+                )
+            ]
+        )
+
+        def simulate(key):
+            return stx.stochsimsolve(
+                key,
+                network,
+                jnp.array([1.0]),
+                T=2.0,
+                max_steps=8,
+                solver=stx.DifferentiableDirect(reaction_grad='reinmax'),
+            )
+
+        results = eqx.filter_vmap(simulate)(keys)
+        _, values = state_kde(
+            results,
+            'A',
+            n_grid_points=2,
+            min_max_vals=(0.0, 1.0),
+            t=2.0,
+            time_kernel_bw=bandwidth,
+            kde_type='gaussian',
+            bw_multiplier=1.5,
+        )
+        return values[1, 0], (results.t[:, -1] < 2.0).sum()
+
+    evaluate = eqx.filter_jit(eqx.filter_value_and_grad(loss, has_aux=True))
+    log_rate = jnp.log(0.7)
+    (value, absorbed), gradient = evaluate(log_rate, 'adaptive')
+    (default_value, _), default_gradient = evaluate(log_rate, 0)
+    assert 0 < absorbed < len(keys)
+    np.testing.assert_array_equal(value, default_value)
+    assert default_gradient == 0
+    assert jnp.isfinite(gradient) and gradient < 0
 
 
 @pytest.mark.parametrize('t_scalar', [2, np.int32(2), jnp.int32(2)])

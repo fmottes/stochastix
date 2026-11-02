@@ -50,8 +50,8 @@ def state_kde(
             Riemann sum over the grid integrates to 1. If ``False``, returns
             unnormalized counts/weights per grid point.
         t: Scalar physical time at which to compute the KDE. If ``None``
-            (default), uses the final recorded state; time kernels at that
-            boundary have truncated tails.
+            (default), uses the final recorded state. An explicit time is
+            required when `time_kernel_bw` enables an event-time kernel.
         kde_type: Type of kernel to use. One of ``'triangular'``, ``'exponential'``,
             ``'gaussian'``, or ``'wendland_c2'``. Default is ``'wendland_c2'``.
         bw_multiplier: Kernel bandwidth multiplier. Controls the width of the
@@ -77,6 +77,9 @@ def state_kde(
               i-th species at the specified time point, shape
               ``(n_grid_points, n_species)``. If ``density=True``, these approximate
               a PDF.
+
+    Raises:
+        ValueError: If a time kernel is enabled without an explicit `t`.
     """
     if isinstance(species, str):
         species = (species,)
@@ -84,13 +87,22 @@ def state_kde(
     species_indices = jnp.array([results.species.index(s) for s in species])
 
     if t is None:
-        results = eqx.filter_vmap(
-            lambda r: r.interpolate(r.t[-1], time_kernel_bw=time_kernel_bw)
-        )(results)
+        message = (
+            'An explicit observation time t is required when using time_kernel_bw.'
+        )
+        if isinstance(time_kernel_bw, str) or (
+            not eqx.is_array(time_kernel_bw) and time_kernel_bw != 0
+        ):
+            raise ValueError(message)
+        x = pytree_to_state(results.x, results.species)[:, -1, species_indices]
+        if eqx.is_array(time_kernel_bw):
+            if time_kernel_bw.ndim != 0:
+                raise ValueError('time_kernel_bw must be a scalar.')
+            x = eqx.error_if(x, time_kernel_bw != 0, message)
     else:
         t = normalize_time_scalar(t, arg_name='t')
         results = results.interpolate(t, time_kernel_bw=time_kernel_bw)
-    x = pytree_to_state(results.x, results.species)[:, species_indices]
+        x = pytree_to_state(results.x, results.species)[:, species_indices]
 
     # Validate selected kernel before vmapping.
     valid_kde_types = ('triangular', 'exponential', 'gaussian', 'wendland_c2')
