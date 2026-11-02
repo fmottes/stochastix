@@ -17,8 +17,8 @@ if typing.TYPE_CHECKING:
 
 
 def mutual_information(
-    x1: jnp.ndarray,
-    x2: jnp.ndarray,
+    x1: jax.Array,
+    x2: jax.Array,
     n_grid_points1: int | None = None,
     n_grid_points2: int | None = None,
     min_max_vals1: tuple[float, float] | None = None,
@@ -29,7 +29,7 @@ def mutual_information(
     bw_multiplier: float = 1.0,
     dirichlet_alpha: float | None = 0.1,
     dirichlet_kappa: float | None = None,
-) -> jnp.ndarray:
+) -> jax.Array:
     """Compute the mutual information between two arrays.
 
     This function uses KDE functions to compute the mutual information between
@@ -46,8 +46,8 @@ def mutual_information(
         For gradient-based optimization, using Dirichlet smoothing
         (``dirichlet_alpha > 0`` or ``dirichlet_kappa > 0``) is generally
         preferred and is the safest choice for stable autodiff. With no
-        smoothing (both set to ``0``), MI can remain finite, but gradients are
-        piecewise and may be numerically fragile near zero-mass bins.
+        smoothing (both set to ``0``), zero-mass bins contribute zero, but
+        gradients can still be nonsmooth when the occupied support changes.
 
     Args:
         x1: 1D array of the first input data.
@@ -129,9 +129,9 @@ def mutual_information(
     # True mutual information:
     # I = sum_{x,y} q(x,y) * log(q(x,y) / (q(x) q(y))).
     # Use support masking so zero-mass bins contribute exactly 0 in the limit.
-    log_q_xy = jnp.log(q_xy)
-    log_q_x = jnp.log(q_x)
-    log_q_y = jnp.log(q_y)
+    log_q_xy = jnp.log(jnp.where(q_xy > 0, q_xy, 1.0))
+    log_q_x = jnp.log(jnp.where(q_x > 0, q_x, 1.0))
+    log_q_y = jnp.log(jnp.where(q_y > 0, q_y, 1.0))
     log_indep = log_q_x[:, None] + log_q_y[None, :]
 
     support = q_xy > 0
@@ -176,8 +176,8 @@ def state_mutual_info(
         For gradient-based optimization, using Dirichlet smoothing
         (``dirichlet_alpha > 0`` or ``dirichlet_kappa > 0``) is generally
         preferred and is the safest choice for stable autodiff. With no
-        smoothing (both set to ``0``), MI can remain finite, but gradients are
-        piecewise and may be numerically fragile near zero-mass bins.
+        smoothing (both set to ``0``), zero-mass bins contribute zero, but
+        gradients can still be nonsmooth when the occupied support changes.
 
     Args:
         results: The `SimulationResults` from a `stochsimsolve` simulation.

@@ -17,7 +17,7 @@ if typing.TYPE_CHECKING:
 
 
 def entropy(
-    x: jnp.ndarray,
+    x: jax.Array,
     n_grid_points: int | None = None,
     min_max_vals: tuple[float, float] | None = None,
     base: float = 2.0,
@@ -26,7 +26,7 @@ def entropy(
     bw_multiplier: float = 1.0,
     dirichlet_alpha: float | None = 0.1,
     dirichlet_kappa: float | None = None,
-) -> jnp.ndarray:
+) -> jax.Array:
     """Compute robust entropy of a 1D sample distribution.
 
     This function computes entropy on grid cell masses induced by a 1D KDE soft
@@ -42,8 +42,8 @@ def entropy(
         For gradient-based optimization, using Dirichlet smoothing
         (``dirichlet_alpha > 0`` or ``dirichlet_kappa > 0``) is generally
         preferred and is the safest choice for stable autodiff. With no
-        smoothing (both set to ``0``), entropy can remain finite, but gradients
-        are piecewise and may be numerically fragile near zero-mass bins.
+        smoothing (both set to ``0``), zero-mass bins contribute zero, but
+        gradients can still be nonsmooth when the occupied support changes.
 
     Args:
         x: 1D sample array.
@@ -106,8 +106,8 @@ def entropy(
     denom = n_eff + alpha * jnp.asarray(n_bins, dtype=dtype)
     q_x = (counts_x + alpha) / denom
 
-    log_q_x = jnp.log(q_x)
     support = q_x > 0
+    log_q_x = jnp.log(jnp.where(support, q_x, 1.0))
     h_nat = -jnp.sum(jnp.where(support, q_x * log_q_x, 0.0))
 
     h = h_nat / jnp.log(jnp.asarray(base, dtype=dtype))
@@ -141,8 +141,8 @@ def state_entropy(
         For gradient-based optimization, using Dirichlet smoothing
         (``dirichlet_alpha > 0`` or ``dirichlet_kappa > 0``) is generally
         preferred and is the safest choice for stable autodiff. With no
-        smoothing (both set to ``0``), entropy can remain finite, but gradients
-        are piecewise and may be numerically fragile near zero-mass bins.
+        smoothing (both set to ``0``), zero-mass bins contribute zero, but
+        gradients can still be nonsmooth when the occupied support changes.
 
     Args:
         results: Batched `SimulationResults` from simulation.
