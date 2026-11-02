@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 
@@ -15,6 +16,10 @@ if TYPE_CHECKING:
 
 def reinforce_loss(stop_returns_grad: bool = True):
     """Create a loss function for the REINFORCE algorithm.
+
+    The sampled trajectory is always held fixed when differentiating its
+    log-probability. Model parameters remain differentiable. `stop_returns_grad`
+    controls gradients through the supplied returns independently.
 
     Args:
         stop_returns_grad: If True, gradients will not be computed for the
@@ -44,7 +49,7 @@ def reinforce_loss(stop_returns_grad: bool = True):
     def _loss(
         model: ReactionNetwork | StochasticModel,
         ssa_results: SimulationResults,
-        returns: jnp.ndarray,
+        returns: jax.Array,
         baseline: float = 0.0,
     ):
         """Compute the REINFORCE loss.
@@ -75,7 +80,13 @@ def reinforce_loss(stop_returns_grad: bool = True):
                 '`model` must implement `log_prob` either directly or through a `.network` attribute. Usually in this case `model` is a `ReactionNetwork` or a `StochasticModel`.'
             )
 
-        log_ps = log_prob_fn(ssa_results)
+        # Score-function gradients hold the sampled states and times fixed,
+        # even if the trajectory came from a pathwise differentiable solver.
+        fixed_results = jax.tree.map(
+            lambda x: jax.lax.stop_gradient(x) if eqx.is_array(x) else x,
+            ssa_results,
+        )
+        log_ps = log_prob_fn(fixed_results)
 
         advantages = returns - jax.lax.stop_gradient(baseline)
 
