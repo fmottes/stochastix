@@ -23,7 +23,7 @@ def _trajectory(propensities=True):
 def test_kernel_forward_values_are_exactly_forward_fill(bandwidth):
     results = _trajectory()
     times = jnp.array([-1.0, 0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0])
-    expected = results.interpolate(times)
+    expected = results.interpolate(times, time_kernel_bw=0)
     actual = eqx.filter_jit(lambda r: r.interpolate(times, time_kernel_bw=bandwidth))(
         results
     )
@@ -136,7 +136,7 @@ def test_kernel_supports_batched_pytrees(state_type):
         results = eqx.tree_at(lambda r: r.x, results, _State(results.x[:, 0]))
     batched = eqx.filter_vmap(lambda _: results)(jnp.arange(2))
     times = jnp.array([0.8, 1.8])
-    expected = batched.interpolate(times)
+    expected = batched.interpolate(times, time_kernel_bw=0)
     actual = eqx.filter_jit(lambda r: r.interpolate(times, time_kernel_bw='adaptive'))(
         batched
     )
@@ -166,7 +166,9 @@ def test_kernel_rejects_initial_final_only_results(bandwidth, save_propensities)
     )
     with pytest.raises(ValueError, match='full saved trajectory'):
         final_only.interpolate(jnp.array([1.0]), time_kernel_bw=bandwidth)
-    np.testing.assert_array_equal(final_only.interpolate(jnp.array([1.0])).x, [[0.0]])
+    np.testing.assert_array_equal(
+        final_only.interpolate(jnp.array([1.0]), time_kernel_bw=0).x, [[0.0]]
+    )
 
 
 def test_adaptive_kernel_rejects_misaligned_propensities():
@@ -216,3 +218,85 @@ def test_kernel_reopens_rate_scaling_direction_through_stochsimsolve():
         results.interpolate(times, time_kernel_bw='adaptive').x,
         results.clean().interpolate(times, time_kernel_bw='adaptive').x,
     )
+
+
+@pytest.mark.parametrize('bandwidth', [0.3, 'adaptive'])
+@pytest.mark.parametrize('n_observations', [0, 1, 16, 17, 31, 32, 33, 37, 64, 65, 129])
+def test_batched_kernel_values_and_gradients_match_dense_formula(
+    bandwidth, n_observations
+):
+    results = _trajectory()
+    observations = jnp.linspace(0.1, 2.9, n_observations)
+
+    def loss(times, observations):
+        r = eqx.tree_at(lambda r: r.t, results, times)
+        return r.interpolate(observations, time_kernel_bw=bandwidth).x.sum()
+
+    actual = results.interpolate(observations, time_kernel_bw=bandwidth)
+    np.testing.assert_array_equal(
+        actual.x, results.interpolate(observations, time_kernel_bw=0).x
+    )
+    widths = jnp.array([0.25, 0.5]) if bandwidth == 'adaptive' else bandwidth
+    s = jax.nn.sigmoid((observations[:, None] - results.t[None, 1:3]) / widths)
+    contributions = s * (1 - s) / widths * jnp.array([3.0, -1.0])
+    gradient = eqx.filter_jit(eqx.filter_grad(loss))(results.t, observations)
+    np.testing.assert_allclose(
+        gradient[1:3], -contributions.sum(axis=0), rtol=2e-6, atol=1e-7
+    )
+    np.testing.assert_array_equal(gradient[jnp.array([0, 3, 4])], 0.0)
+    direction = jnp.array([0.0, -1.0, -2.0, 0.0, 0.0])
+    _, tangent = eqx.filter_jvp(
+        loss, (results.t, observations), (direction, jnp.zeros_like(observations))
+    )
+    np.testing.assert_allclose(tangent, gradient @ direction, rtol=2e-6, atol=1e-7)
+
+
+@pytest.mark.parametrize('scalar', [False, True])
+def test_default_interpolation_uses_adaptive_time_gradients(scalar):
+    results = _trajectory()
+    observations = jnp.array(1.8) if scalar else jnp.linspace(0.1, 2.9, 129)
+
+    def default_loss(r):
+        return r.interpolate(observations).x.sum()
+
+    def adaptive_loss(r):
+        return r.interpolate(observations, time_kernel_bw='adaptive').x.sum()
+
+    value, gradient = eqx.filter_jit(eqx.filter_value_and_grad(default_loss))(results)
+    expected_value, expected_gradient = eqx.filter_value_and_grad(adaptive_loss)(
+        results
+    )
+    np.testing.assert_array_equal(value, expected_value)
+    for actual, expected in zip(
+        jax.tree.leaves(gradient), jax.tree.leaves(expected_gradient)
+    ):
+        np.testing.assert_allclose(actual, expected, rtol=2e-6, atol=1e-7)
+    assert jnp.linalg.norm(gradient.t) > 0
+
+
+def test_default_interpolation_errors_explain_opt_out():
+    missing_propensities = _trajectory(propensities=False)
+    with pytest.raises(ValueError, match='time_kernel_bw=0'):
+        missing_propensities.interpolate(jnp.array([1.5]))
+    np.testing.assert_array_equal(
+        missing_propensities.interpolate(jnp.array([1.5]), time_kernel_bw=0).x, [[5.0]]
+    )
+    without_events = eqx.tree_at(lambda r: r.reactions, _trajectory(), None)
+    with pytest.raises(ValueError, match='time_kernel_bw=0'):
+        without_events.interpolate(jnp.array([1.5]))
+    np.testing.assert_array_equal(
+        without_events.interpolate(jnp.array([1.5]), time_kernel_bw=0).x, [[5.0]]
+    )
+
+
+def test_batched_kernel_preserves_dynamic_state_metadata():
+    results = _trajectory()
+    state = {'A': results.x[:, 0], 'label': 'counts', 'scalar': jnp.array(7.0)}
+    results = eqx.tree_at(lambda r: r.x, results, state)
+    observations = jnp.linspace(0.1, 2.9, 129)
+    actual = results.interpolate(observations)
+    expected = results.interpolate(observations, time_kernel_bw=0)
+    np.testing.assert_array_equal(actual.x['A'], expected.x['A'])
+    assert actual.x['label'] == 'counts'
+    assert actual.x['scalar'].shape == ()
+    assert actual.x['scalar'] == 7.0

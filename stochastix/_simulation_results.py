@@ -10,12 +10,15 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 
+_TIME_KERNEL_BATCH_SIZE = 32
 
-def _time_kernel_weights(results, t_interp, bandwidth):
-    """Return zero-valued weights carrying logistic event-time gradients."""
+
+def _time_kernel_parameters(results, bandwidth):
+    """Validate a trajectory and prepare masked event times and kernel scales."""
     if results.reactions is None:
         raise ValueError(
-            'Time kernels require a full saved trajectory (save_trajectory=True).'
+            'Time kernels require a full saved trajectory (save_trajectory=True). '
+            'Pass time_kernel_bw=0 to use forward-fill without a time kernel.'
         )
 
     # t includes the initial state; propensities belong to intervals ending at t[1:].
@@ -32,7 +35,8 @@ def _time_kernel_weights(results, t_interp, bandwidth):
         if results.propensities is None:
             raise ValueError(
                 "time_kernel_bw='adaptive' requires saved per-step propensities "
-                '(save_propensities=True).'
+                '(save_propensities=True). Pass time_kernel_bw=0 to disable '
+                'the time kernel, or a positive fixed width to use it without propensities.'
             )
         if results.propensities.shape[:-1] != times.shape:
             raise ValueError(
@@ -53,17 +57,30 @@ def _time_kernel_weights(results, t_interp, bandwidth):
         )
         bandwidth = jax.lax.stop_gradient(bandwidth)
         valid = valid & (bandwidth > 0)
+        scale = jnp.where(bandwidth > 0, bandwidth, 1.0)
 
-    # Mask before arithmetic, not just afterwards, to avoid NaNs in autodiff.
-    times = jnp.where(valid, times, 0.0)
-    offset = jnp.where(valid[None, :], t_interp[:, None] - times[None, :], 0.0)
-    logits = (
-        offset * scale
-        if isinstance(bandwidth, str)
-        else offset / jnp.where(bandwidth > 0, bandwidth, 1.0)
+    return jnp.where(valid, times, 0.0), valid, scale
+
+
+@eqx.filter_jit
+def _time_kernel_corrections(times, valid, scale, increments, observations, adaptive):
+    """Evaluate time-gradient corrections in cached, memory-bounded batches."""
+
+    def _correction(observation):
+        # Mask before arithmetic to keep padding out of autodiff.
+        offset = jnp.where(valid, observation - times, 0.0)
+        logits = offset * scale if adaptive else offset / scale
+        weights = jnp.where(valid, jax.nn.sigmoid(logits), 0.0)
+        weights = weights - jax.lax.stop_gradient(weights)
+        return jtu.tree_map(lambda dx: jnp.tensordot(weights, dx, axes=1), increments)
+
+    # Checkpoint each observation so the scan transpose recomputes weights
+    # rather than saving one event-sized residual per observation time.
+    return jax.lax.map(
+        eqx.filter_checkpoint(_correction, prevent_cse=False),
+        observations,
+        batch_size=_TIME_KERNEL_BATCH_SIZE,
     )
-    weights = jnp.where(valid[None, :], jax.nn.sigmoid(logits), 0.0)
-    return weights - jax.lax.stop_gradient(weights), valid
 
 
 class SimulationResults(eqx.Module):
@@ -287,7 +304,7 @@ class SimulationResults(eqx.Module):
         self,
         t_interp: jax.Array,
         *,
-        time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 0,
+        time_kernel_bw: float | jax.Array | typing.Literal['adaptive'] = 'adaptive',
     ) -> SimulationResults:
         """Interpolates stochastic simulation results to new time points.
 
@@ -299,13 +316,13 @@ class SimulationResults(eqx.Module):
             t_interp: A sorted array of time points at which to interpolate
                 the state. Values outside the simulation time range [self.t[0], self.t[-1]]
                 will be automatically clamped to the nearest boundary.
-            time_kernel_bw: Time-gradient estimator. Zero (default) keeps the
-                existing forward-fill gradients, with no event-time contribution.
-                A positive number adds a logistic time kernel with that fixed
-                width. 'adaptive' uses each event's inverse total pre-event
-                propensity and requires `save_propensities=True`. Bandwidths are
-                stop-gradiented. Forward values and state/choice gradients are
-                preserved. Both kernels require `save_trajectory=True`.
+            time_kernel_bw: Time-gradient estimator. 'adaptive' (default) uses
+                each event's inverse total pre-event propensity and requires
+                `save_propensities=True`. A positive number uses a logistic
+                time kernel with that fixed width. Zero disables the time kernel
+                and keeps forward-fill gradients with no event-time contribution.
+                Bandwidths are stop-gradiented. Forward values and state/choice
+                gradients are preserved. Both kernels require `save_trajectory=True`.
 
         Returns:
             SimulationResults: A new container with the interpolated state trajectory
@@ -329,8 +346,12 @@ class SimulationResults(eqx.Module):
             surrogate gradients. Simulate beyond the last observation to include events
             on both sides of its kernel; this is the caller's responsibility and is not
             checked here.
+
+            Observation times are processed in batches of at most 32, with kernel weights
+            recomputed during reverse-mode differentiation to bound temporary
+            memory instead of retaining an events-by-observations matrix.
         """
-        # Keep the default path unchanged and avoid allocating kernel weights.
+        # The explicit opt-out avoids all kernel work and trajectory requirements.
         use_kernel = eqx.is_array(time_kernel_bw) or time_kernel_bw != 0
 
         def _interpolate(results, t_interp):
@@ -339,29 +360,46 @@ class SimulationResults(eqx.Module):
             t_clamped = jnp.clip(t_interp, results.t[0], results.t[-1])
             indices = jnp.searchsorted(results.t, t_clamped, side='right') - 1
 
-            weights = None
+            corrections = None
             if use_kernel:
-                weights, valid = _time_kernel_weights(
-                    results, jnp.atleast_1d(t_interp), time_kernel_bw
-                )
-                if jnp.ndim(t_interp) == 0:
-                    weights = weights[0]
+                times, valid, scale = _time_kernel_parameters(results, time_kernel_bw)
 
-            def _read_leaf(leaf):
+                def _increments(leaf):
+                    if not eqx.is_array(leaf) or leaf.ndim == 0:
+                        return None
+                    mask = valid.reshape((valid.size,) + (1,) * (leaf.ndim - 1))
+                    return jnp.where(
+                        mask, jax.lax.stop_gradient(jnp.diff(leaf, axis=0)), 0.0
+                    )
+
+                increments = jtu.tree_map(_increments, results.x)
+
+                corrections = _time_kernel_corrections(
+                    times,
+                    valid,
+                    scale,
+                    increments,
+                    jnp.atleast_1d(t_interp),
+                    isinstance(time_kernel_bw, str),
+                )
+
+            def _read_leaf(leaf, correction=None):
                 # Preserve static metadata in custom state PyTrees.
                 if not eqx.is_array(leaf) or leaf.ndim == 0:
                     return leaf
                 observed = leaf[indices]
-                if weights is not None:
-                    mask = valid.reshape((valid.size,) + (1,) * (leaf.ndim - 1))
-                    increments = jnp.where(
-                        mask, jax.lax.stop_gradient(jnp.diff(leaf, axis=0)), 0.0
-                    )
-                    # Weights are exactly zero forward; only their gradients act.
-                    observed = observed + jnp.tensordot(weights, increments, axes=1)
+                if correction is not None:
+                    if jnp.ndim(t_interp) == 0:
+                        correction = correction[0]
+                    # Corrections are exactly zero forward; only gradients act.
+                    observed = observed + correction
                 return observed
 
-            x_interp = jtu.tree_map(_read_leaf, results.x)
+            x_interp = (
+                jtu.tree_map(_read_leaf, results.x, corrections)
+                if corrections is not None
+                else jtu.tree_map(_read_leaf, results.x)
+            )
 
             return SimulationResults(
                 x=x_interp,
