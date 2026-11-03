@@ -144,11 +144,14 @@ class DGA(AbstractStochasticSolver):
         a0 = jnp.sum(a)
 
         # 1. Sample time step dt, same as in exact Gillespie
-        dt = -jnp.log(rng.uniform(key_dt)) / a0
-        dt = jnp.where(a0 > 0, dt, jnp.inf)
+        # Keep log and division finite even when the result is masked.
+        dtype = jnp.result_type(float)
+        u = rng.uniform(key_dt, dtype=dtype, minval=jnp.finfo(dtype).tiny)
+        safe_a0 = jnp.where(a0 > 0, a0, 1.0)
+        dt = jnp.where(a0 > 0, -jnp.log(u) / safe_a0, jnp.inf)
 
         # 2. Differentiable reaction selection
-        p = a / a0
+        p = a / safe_a0
         c = jnp.cumsum(p)
 
         # Sample uniform random number for selection
@@ -343,8 +346,11 @@ class DifferentiableDirect(AbstractStochasticSolver):
 
         a0 = jnp.sum(a)
 
-        # sample time
-        dt = -jnp.log(rng.uniform(key_dt)) / a0
+        # Keep log and division finite even when the result is masked.
+        dtype = jnp.result_type(float)
+        u = rng.uniform(key_dt, dtype=dtype, minval=jnp.finfo(dtype).tiny)
+        safe_a0 = jnp.where(a0 > 0, a0, 1.0)
+        dt = jnp.where(a0 > 0, -jnp.log(u) / safe_a0, jnp.inf)
 
         gumbels = rng.gumbel(key_gumbel, shape=a.shape)
         positive = a > 0
@@ -521,12 +527,14 @@ class DifferentiableFirstReaction(AbstractStochasticSolver):
         """
         stoichiometry_matrix = jnp.asarray(network.stoichiometry_matrix)
 
-        # Sample candidate firing times
+        # Exclude uniform zero to keep candidate waiting-time derivatives finite.
+        dtype = jnp.result_type(float)
+        u = rng.uniform(key, shape=a.shape, dtype=dtype, minval=jnp.finfo(dtype).tiny)
         positive = a > 0
         safe_a = jnp.where(positive, a, jnp.ones_like(a))
         dt_vec = jnp.where(
             positive,
-            -jnp.log(rng.uniform(key, shape=a.shape)) / safe_a,
+            -jnp.log(u) / safe_a,
             jnp.inf,
         )
         r_hard = jnp.argmin(dt_vec)

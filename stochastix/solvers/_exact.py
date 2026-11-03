@@ -98,11 +98,14 @@ class DirectMethod(AbstractStochasticSolver):
 
         a0 = jnp.sum(a)
 
-        # sample time
-        dt = -jnp.log(rng.uniform(key_dt)) / a0
+        # Keep log and division finite even when the result is masked.
+        dtype = jnp.result_type(float)
+        u = rng.uniform(key_dt, dtype=dtype, minval=jnp.finfo(dtype).tiny)
+        safe_a0 = jnp.where(a0 > 0, a0, 1.0)
+        dt = jnp.where(a0 > 0, -jnp.log(u) / safe_a0, jnp.inf)
 
         # sample reaction
-        p = a / a0
+        p = a / safe_a0
         r = rng.choice(key_r, jnp.arange(len(a)), p=p)
 
         # update state
@@ -199,7 +202,12 @@ class FirstReactionMethod(AbstractStochasticSolver):
         Returns:
             Tuple containing the SimulationStep result and the new solver state.
         """
-        dt_vec = -jnp.log(rng.uniform(key, shape=a.shape)) / a
+        # Keep log and division finite even for disabled reactions.
+        dtype = jnp.result_type(float)
+        u = rng.uniform(key, shape=a.shape, dtype=dtype, minval=jnp.finfo(dtype).tiny)
+        positive = a > 0
+        safe_a = jnp.where(positive, a, jnp.ones_like(a))
+        dt_vec = jnp.where(positive, -jnp.log(u) / safe_a, jnp.inf)
 
         r = jnp.argmin(dt_vec)
         dt = dt_vec[r]
