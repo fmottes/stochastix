@@ -9,7 +9,7 @@ repos:
     -   id: check-added-large-files
 
 -   repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.0
+    rev: v0.17.3
     hooks:
     -   id: ruff
         args: [--fix]
@@ -17,11 +17,14 @@ repos:
         types_or: [python, pyi, jupyter, markdown]
 
 -   repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.9.26
+    rev: 0.13.6
     hooks:
-    -   id: pip-compile
-        args: [--upgrade, -o, requirements.txt, pyproject.toml]
+    -   id: uv-lock
+    -   id: uv-export
+        name: uv-export requirements.txt
+        args: [--frozen, --no-hashes, --no-emit-project, --no-default-groups, -o, requirements.txt]
         files: ^(pyproject\.toml|uv\.lock|requirements\.txt)$
-    -   id: pip-compile
-        args: [--upgrade, -o, requirements-all.txt, pyproject.toml, --all-extras, --group, dev, --group, docs]
+    -   id: uv-export
+        name: uv-export requirements-all.txt
+        args: [--frozen, --no-hashes, --no-emit-project, --all-extras, --all-groups, -o, requirements-all.txt]
         files: ^(pyproject\.toml|uv\.lock|requirements-all\.txt)$

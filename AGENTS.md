@@ -24,7 +24,7 @@ uv sync --group docs
 uv run mkdocs serve
 ```
 
-Pre-commit hooks: ruff lint+format (single quotes enforced), trailing whitespace, and pip-compile of `requirements.txt` / `requirements-all.txt`.
+Pre-commit hooks: ruff lint+format (single quotes enforced), trailing whitespace, lockfile synchronization, and export of `requirements.txt` / `requirements-all.txt` from `uv.lock`.
 
 ## Architecture
 

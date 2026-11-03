@@ -87,7 +87,8 @@ def test_state_kde_dynamic_zero_bandwidth_needs_no_history():
     expected = state_kde(
         results, 'A', n_grid_points=8, min_max_vals=(0.0, 13.0), time_kernel_bw=0
     )[1]
-    np.testing.assert_array_equal(evaluate(jnp.array(0.0)), expected)
+    # JIT fusion may round the derived density differently from eager mode.
+    np.testing.assert_allclose(evaluate(jnp.array(0.0)), expected, rtol=1e-6, atol=1e-7)
     with pytest.raises(
         (ValueError, eqx.EquinoxRuntimeError),
         match='explicit observation time t is required',
